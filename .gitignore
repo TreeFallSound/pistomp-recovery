@@ -1,0 +1,24 @@
+# Auto-generated / cache
+.pytest_cache/
+.ruff_cache/
+.venv/
+**/__pycache__/
+*.pyc
+
+# Build artifacts
+dist/
+*.egg-info/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Scratch files
+SCRATCH.md

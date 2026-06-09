@@ -18,10 +18,12 @@ Keyboard shortcuts:
 
 from __future__ import annotations
 
+from typing import Callable
+
 import pygame
 
+from pistomp_recovery.ui.fonts import SafeFont
 from pistomp_recovery.ui.widgets.misc import InputEvent
-
 
 # Dimensions
 LCD_SCALE: int = 2
@@ -41,7 +43,7 @@ class EmulatorWindow:
     def __init__(
         self,
         lcd_surface: pygame.Surface,
-        send_event: object,
+        send_event: Callable[[InputEvent], None],
     ) -> None:
         self._lcd_surface: pygame.Surface = lcd_surface
         self._send_event = send_event
@@ -54,7 +56,7 @@ class EmulatorWindow:
 
         self.screen: pygame.Surface = pygame.display.set_mode((self.win_w, self.win_h))
         pygame.display.set_caption("pistomp-recovery Emulator")
-        self.font: pygame.font.Font = pygame.font.Font(None, 18)
+        self.font = SafeFont(None, 18)
 
         btn_y: int = self.disp_h + 8
         btn_h: int = 36
@@ -63,7 +65,7 @@ class EmulatorWindow:
         x: int = gap
 
         self._buttons: list[tuple[pygame.Rect, InputEvent]] = []
-        for label, event in [
+        for _label, event in [
             ("← Left", InputEvent.LEFT),
             ("Right →", InputEvent.RIGHT),
             ("Click", InputEvent.CLICK),

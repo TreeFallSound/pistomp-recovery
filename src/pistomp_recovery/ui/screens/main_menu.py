@@ -1,62 +1,63 @@
 from __future__ import annotations
 
-from enum import Enum, auto
+from typing import Callable
 
 import pygame
 
 from pistomp_recovery.ui.colors import COLORS
+from pistomp_recovery.ui.screens import Screen
+from pistomp_recovery.ui.screens.types import Actions
 from pistomp_recovery.ui.widgets.menu import Menu
 from pistomp_recovery.ui.widgets.misc import Box, InputEvent
 from pistomp_recovery.ui.widgets.paint import PaintContext
 
 
-class MenuAction(Enum):
-    RESUME = auto()
-    SYSTEM_INFO = auto()
-    PACKAGE_UPDATES = auto()
-    CONFIG_MANAGEMENT = auto()
-    FACTORY_RESET = auto()
-    REBOOT = auto()
-    POWER_OFF = auto()
-
-
-class MainMenuScreen:
-    def __init__(self, surface: pygame.Surface) -> None:
-        self._surface: pygame.Surface = surface
+class MainMenuScreen(Screen):
+    def __init__(
+        self,
+        surface: pygame.Surface,
+        actions: Actions,
+        dirty_count: int = 0,
+        update_count: int = 0,
+    ) -> None:
+        super().__init__(surface)
         self._menu: Menu = Menu(Box(4, 4, 312, 232), title="Recovery")
-        self._action: MenuAction | None = None
+        self._actions: Actions = actions
+        self._dirty_count: int = dirty_count
+        self._update_count: int = update_count
+        self._build_menu()
 
-        self._menu.add_item("Resume", lambda: self._set_action(MenuAction.RESUME))
-        self._menu.add_item("System Info", lambda: self._set_action(MenuAction.SYSTEM_INFO))
-        self._menu.add_item(
-            "Package Updates",
-            lambda: self._set_action(MenuAction.PACKAGE_UPDATES),
-        )
-        self._menu.add_item(
-            "Config Management",
-            lambda: self._set_action(MenuAction.CONFIG_MANAGEMENT),
-        )
-        self._menu.add_item("Factory Reset", lambda: self._set_action(MenuAction.FACTORY_RESET))
-        self._menu.add_item("Reboot", lambda: self._set_action(MenuAction.REBOOT))
-        self._menu.add_item("Power Off", lambda: self._set_action(MenuAction.POWER_OFF))
+    def _build_menu(self) -> None:
+        self._menu.clear_items()
+        self._menu.add_item("Resume", self._action("resume"))
 
-    def _set_action(self, action: MenuAction) -> None:
-        self._action = action
+        if self._dirty_count > 0:
+            self._menu.add_item("Reset...", self._action("reset"), f"{self._dirty_count} changed")
+        if self._update_count > 0:
+            self._menu.add_item(
+                "Update...", self._action("update"), f"{self._update_count} available"
+            )
 
-    @property
-    def action(self) -> MenuAction | None:
-        return self._action
+        self._menu.add_item("Pedalboards...", self._action("pedalboards"))
+        self._menu.add_item("Packages...", self._action("packages"))
+        self._menu.add_item("System Info...", self._action("system_info"))
+        self._menu.add_item("Reboot", self._action("reboot"))
+        self._menu.add_item("Power Off", self._action("power_off"))
 
-    @action.setter
-    def action(self, value: MenuAction | None) -> None:
-        self._action = value
+    def _action(self, name: str) -> Callable[[], None]:
+        return self._actions.get(name, lambda: None)
+
+    def update_counts(self, dirty_count: int, update_count: int) -> None:
+        self._dirty_count = dirty_count
+        self._update_count = update_count
+        self._build_menu()
 
     def draw(self) -> None:
         self._surface.fill(COLORS["bg"])
-        ctx: PaintContext = PaintContext(
-            self._surface, Box(0, 0, 320, 240), Box(0, 0, 320, 240)
-        )
+        ctx: PaintContext = PaintContext(self._surface, Box(0, 0, 320, 240), Box(0, 0, 320, 240))
         self._menu.draw(ctx)
 
     def handle_event(self, event: InputEvent) -> bool:
+        if event == InputEvent.LONG_CLICK:
+            return False
         return self._menu.handle_event(event)

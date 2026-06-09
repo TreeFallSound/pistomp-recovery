@@ -4,15 +4,15 @@ import pygame
 
 from pistomp_recovery.service import get_system_info
 from pistomp_recovery.ui.colors import COLORS
-from pistomp_recovery.ui.fonts import SIZES, SafeFont, get_font
+from pistomp_recovery.ui.fonts import SIZES, get_font
+from pistomp_recovery.ui.screens import Screen
 from pistomp_recovery.ui.widgets.misc import InputEvent
 
 
-class SystemInfoScreen:
+class SystemInfoScreen(Screen):
     def __init__(self, surface: pygame.Surface) -> None:
-        self._surface: pygame.Surface = surface
+        super().__init__(surface)
         self._info: dict[str, str] = {}
-        self._back_requested: bool = False
 
     def refresh(self) -> None:
         self._info = get_system_info()
@@ -20,12 +20,12 @@ class SystemInfoScreen:
     def draw(self) -> None:
         self._surface.fill(COLORS["bg"])
 
-        title_font: SafeFont = get_font(SIZES["heading"])
+        title_font = get_font(SIZES["heading"])
         title_surf: pygame.Surface = title_font.render("System Info", True, COLORS["text_bright"])
         self._surface.blit(title_surf, (10, 8))
 
         y: int = 36
-        body_font: SafeFont = get_font(SIZES["body"])
+        body_font = get_font(SIZES["body"])
         items: list[tuple[str, str]] = list(self._info.items())
         for key, value in items[:8]:
             label: str = f"{key}: "
@@ -36,12 +36,14 @@ class SystemInfoScreen:
             y += 20
 
         y = max(y + 10, 200)
-        back_font: SafeFont = get_font(SIZES["small"])
-        back_surf: pygame.Surface = back_font.render("← Long-press back", True, COLORS["text_dim"])
+        back_font = get_font(SIZES["small"])
+        back_surf: pygame.Surface = back_font.render(
+            "\u2190 Long-press back", True, COLORS["text_dim"]
+        )
         self._surface.blit(back_surf, (10, y))
 
     def handle_event(self, event: InputEvent) -> bool:
         if event == InputEvent.LONG_CLICK:
-            self._back_requested = True
+            self._go_back()
             return True
         return False

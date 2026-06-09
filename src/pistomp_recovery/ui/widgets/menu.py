@@ -12,8 +12,9 @@ from pistomp_recovery.ui.widgets.paint import PaintContext
 
 ITEM_HEIGHT: int = 22
 MARGIN: int = 4
+RIGHT_COL_PAD: int = 8
 
-MenuItem = tuple[str, Callable[[], None]]
+MenuItem = tuple[str, Callable[[], None], str]
 
 
 class Menu(Container):
@@ -24,18 +25,33 @@ class Menu(Container):
         self.sel_index: int = 0
         self.scroll_offset: int = 0
         self.auto_dismiss: bool = False
+        self._right_col_width: int = 0
 
     def add_item(
-        self, label: str, callback: Callable[[], None]
+        self, label: str, callback: Callable[[], None], right: str = ""
     ) -> None:
-        self.items.append((label, callback))
+        self.items.append((label, callback, right))
+        self._recalc_right_col()
         self.mark_dirty()
 
     def clear_items(self) -> None:
         self.items.clear()
         self.sel_index = 0
         self.scroll_offset = 0
+        self._right_col_width = 0
         self.mark_dirty()
+
+    def _recalc_right_col(self) -> None:
+        if not self.items:
+            self._right_col_width = 0
+            return
+        font = get_font(20)
+        max_w: int = 0
+        for _, _, right in self.items:
+            if right:
+                surf: pygame.Surface = font.render(right, True, (255, 255, 255))
+                max_w = max(max_w, surf.get_width())
+        self._right_col_width = max_w + RIGHT_COL_PAD if max_w > 0 else 0
 
     @property
     def visible_count(self) -> int:
@@ -58,7 +74,7 @@ class Menu(Container):
             return True
         elif event == InputEvent.CLICK:
             if 0 <= self.sel_index < len(self.items):
-                _, callback = self.items[self.sel_index]
+                _, callback, _ = self.items[self.sel_index]
                 callback()
                 return True
         return False
@@ -76,11 +92,13 @@ class Menu(Container):
         y_start: int = self.bounds.y + (TITLE_BAR_H if self.title else 0)
         x_start: int = self.bounds.x + MARGIN
         font = get_font(20)
+        small_font = get_font(16)
 
         end: int = min(self.scroll_offset + self.visible_count, len(self.items))
         for i in range(self.scroll_offset, end):
             y: int = y_start + (i - self.scroll_offset) * ITEM_HEIGHT
             label: str = self.items[i][0]
+            right_text: str = self.items[i][2]
             is_selected: bool = i == self.sel_index
 
             if is_selected:
@@ -92,11 +110,36 @@ class Menu(Container):
             text_color: Color = (
                 COLORS["text_bright"] if is_selected else COLORS["text_dim"]
             )
+            right_color: Color = (
+                COLORS["text_accent"] if is_selected else COLORS["text_dim"]
+            )
+
+            label_max_w: int = self.bounds.w - MARGIN * 2 - 4
+            if self._right_col_width > 0:
+                label_max_w -= self._right_col_width
+
             text_surf: pygame.Surface = font.render(label, True, text_color)
             text_rect: pygame.Rect = text_surf.get_rect(
                 midleft=(x_start, y + ITEM_HEIGHT // 2)
             )
-            surface.blit(text_surf, text_rect)
+
+            if self._right_col_width > 0:
+                clip_rect: pygame.Rect = pygame.Rect(
+                    x_start, y, label_max_w, ITEM_HEIGHT
+                )
+                surface.set_clip(clip_rect)
+                surface.blit(text_surf, text_rect)
+                surface.set_clip(None)
+            else:
+                surface.blit(text_surf, text_rect)
+
+            if right_text:
+                right_surf: pygame.Surface = small_font.render(right_text, True, right_color)
+                right_x: int = self.bounds.right - self._right_col_width + RIGHT_COL_PAD
+                right_rect: pygame.Rect = right_surf.get_rect(
+                    midleft=(right_x, y + ITEM_HEIGHT // 2)
+                )
+                surface.blit(right_surf, right_rect)
 
         if len(self.items) > self.visible_count:
             total: int = len(self.items)

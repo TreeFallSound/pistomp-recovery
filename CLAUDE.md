@@ -11,10 +11,14 @@ Package update and recovery service for pi-Stomp (Arch Linux ARM). Runs as an ex
 ## Key concepts
 
 - **Facet** — A git-backed versioned unit of system state. Each facet has a `factory` branch (image-shipped state), a `device` branch (working state), and stamp tags (`stamp/<name>/<timestamp>`).
+- **Item** — Per-unit granularity within a facet. `PedalboardItem` and `PackageItem` data classes expose per-unit dirty check, stamp, rollback, and factory reset. Produced by `PedalboardsFacet.list_items()` and `PackagesFacet.list_items()`.
 - **Stamp** — Marking a facet as known-good. `pistomp-stamp stamp -f config` commits current state and tags it. Called by pi-stomp on successful pedalboard load.
 - **Exclusive LCD** — `pistomp-recovery.service` has `Conflicts=mod-ala-pi-stomp.service`. Recovery takes the LCD; resuming stops recovery and starts the main app.
 - **Crash loop detection** — `mod-ala-pi-stomp.service`: `Restart=on-failure`, `StartLimitBurst=3`, `StartLimitIntervalSec=180`, `OnFailure=pistomp-recovery.service`.
-- **Package updates** — pacman backed by GitHub Releases repo. Download → install → health check → stamp, or rollback.
+- **Package updates** — pacman backed by GitHub Releases repo. Download → install → health check → stamp, or rollback. Per-package service restart awareness via `PACKAGE_SERVICES` map.
+- **Per-item operations** — PedalboardItem and PackageItem data classes expose per-unit dirty check, stamp, rollback, and factory reset. Items are sorted by recency with human-relative timestamps.
+- **Navigation stack** — Screens are instantiated once and persist. `_push_screen`/`_pop_screen` manage a stack. Long-press back pops. ConfirmDialog is a floating overlay that intercepts all input.
+- **Menu right column** — `Menu.add_item(label, callback, right="3 changed")` renders a right-aligned badge. Used for dirty counts, update counts, and timestamps.
 - **Health check** — JACK → mod-host → mod-ui → pi-stomp (via `/run/pistomp-healthy` stamp file).
 - **LCD splash coordination** — `/run/lcd.init` (tmpfs) created by `lcd-splash` C binary at boot; checked by Python to skip hardware reset.
 
@@ -43,7 +47,7 @@ The LCD renders into a 320×240 pygame Surface. To ensure pixel-identical output
 
 - **Single-responsibility widgets** — `Widget` base carries `bounds`, `_dirty`, `_parent`, and no-op `propagate_dirty`. `Container` overrides it to merge dirty regions upward. Leaf widgets (`TextWidget`, `ProgressBar`, `StatusLine`, `Menu`) only implement `draw()`.
 - **PaintContext** — Not a bare `pygame.Rect`. Carries `surface`, `clip` (visible area), and `frame` (widget-local coords). Screens create a root `PaintContext(surface, Box(0,0,320,240), Box(0,0,320,240))` and pass it to widget `draw()`.
-- **Menu** — Scrollable vertical list with selection highlight, scrollbar for overflow items, and `Callable[[], None]` callbacks. No opaque arg-passing; closures capture what they need.
+- **Menu** — Scrollable vertical list with selection highlight, scrollbar for overflow items, right-aligned badge column, and `Callable[[], None]` callbacks. No opaque arg-passing; closures capture what they need.
 
 ### Service crash loop
 
@@ -76,11 +80,12 @@ uv run pistomp-recovery-emulator  # Interactive pygame window with keyboard cont
 
 ```
 src/pistomp_recovery/
-├── __main__.py          — Entry point: boot mode detection, main loop, screen routing
-├── constants.py         — Paths, package list, service list, LCD dims
+├── __main__.py          — Entry point: boot mode, main loop, navigation stack, screen routing
+├── constants.py         — Paths, package list, PACKAGE_SERVICES map, LCD dims
+├── util.py              — human_time() relative timestamp utility
 ├── stamp.py             — CLI: pistomp-stamp (stamp/snapshot/status per facet)
 ├── service.py           — systemd integration: boot mode, start/stop, crash log, system info
-├── git_util.py          — Git operations: init, commit, tag, checkout, rollback
+├── git_util.py          — Git operations: init, commit, tag, checkout, rollback, per-item stamps
 ├── pygame_init.py       — Idempotent pygame + _freetype init (headless-safe)
 ├── hardware/
 │   ├── encoder.py       — Rotary encoder GPIO input (nav encoder D=17 CLK=4)
@@ -88,14 +93,14 @@ src/pistomp_recovery/
 ├── facets/
 │   ├── base.py          — Facet ABC: init, snapshot, stamp, rollback, factory_reset, status
 │   ├── config_facet.py  — /home/pistomp/data/config/ — default_config.yml, settings.yml
-│   ├── pedalboards_facet.py — /home/pistomp/data/.pedalboards/ — git repo, upstream+device branches
-│   ├── packages_facet.py — Package version manifest (pacman -Q), installs on rollback
+│   ├── pedalboards_facet.py — PedalboardItem, PedalboardsFacet: per-pedalboard git-scoped ops
+│   ├── packages_facet.py — PackageItem, PackagesFacet: per-package version/stamp/dirty tracking
 │   └── system_facet.py  — /boot/config.txt, /etc/jackdrc, ALSA state, pistomp.conf
 ├── packages/
 │   ├── manager.py       — Pacman wrapper: download, install, rollback from cache
 │   └── health.py        — Service health checks: JACK, mod-host, mod-ui, pi-stomp stamp
 ├── emulator/
-│   ├── bootstrap.py     — EmulatorApp: interactive pygame window, screen routing
+│   ├── bootstrap.py     — EmulatorApp: interactive pygame window, navigation stack, stub data
 │   ├── controls.py      — FakeEncoder, FakeInputManager for emulator
 │   ├── lcd_pygame.py    — LcdPygame: renders Surface to pygame window
 │   └── window.py        — EmulatorWindow: pygame event loop, keyboard → InputEvent
@@ -108,10 +113,13 @@ src/pistomp_recovery/
     │   └── DejaVuSans-Bold.ttf  — Bold weight (from pi-stomp)
     ├── input.py          — Encoder rotation + GPIO switch → InputEvent
     ├── screens/
+    │   ├── __init__.py   — Screen base class with draw(), handle_event(), set_back_callback()
     │   ├── crash.py      — "App Crashed" + last journal lines, Resume/Recovery
-    │   ├── main_menu.py  — Resume, System Info, Updates, Config, Factory Reset, Reboot, Power Off
-    │   ├── updates.py    — Check/download/install updates with progress
-    │   ├── config_screen.py — Per-facet stamp/rollback/factory-reset menu
+    │   ├── main_menu.py  — Resume, Reset (badge), Update (badge), Pedalboards, Packages, System Info, Reboot, Power Off
+    │   ├── reset_screen.py — Mixed dirty items (pedalboards + packages) sorted by recency
+    │   ├── pedalboards_screen.py — Per-pedalboard stamp/rollback/factory-reset menu
+    │   ├── packages_screen.py — Per-package update/stamp/rollback menu with service restart
+    │   ├── updates.py    — Check/download/install updates with progress, health check, stamp
     │   ├── system_info.py  — Kernel, uptime, temp, OS version
     │   └── status_screen.py — Progress bar + status text for update operations
     └── widgets/
@@ -121,7 +129,8 @@ src/pistomp_recovery/
         ├── container.py   — ContainerWidget: surface cache, dirty region, children
         ├── panel.py       — Panel: titled rectangle with content area
         ├── panel_stack.py — Layered panel compositor → LCD
-        ├── menu.py        — Vertical scrollable menu with selection highlight, scrollbar
+        ├── menu.py        — Vertical scrollable menu with selection highlight, scrollbar, right-aligned badges
+        ├── confirm_dialog.py — Modal overlay: encoder selects Cancel/Confirm, long-press = Cancel
         └── text.py        — TextWidget, ProgressBar, StatusLine
 
 files/
@@ -136,7 +145,8 @@ pkgbuilds/
 - **Changing a color?** Edit `COLORS` in `ui/colors.py`. The `Color` type alias is `tuple[int, int, int] | tuple[int, int, int, int]` — alpha is supported.
 - **Changing a font size?** Edit `SIZES` in `ui/fonts/__init__.py`. Title and heading use bold; everything else uses regular.
 - **Adding a widget?** Implement `draw(ctx: PaintContext)`. No bare `pygame.Rect` — always construct a `PaintContext` from a `Box`. Add a snapshot test in `tests/test_widgets.py`.
-- **Adding a screen?** Import `PaintContext` and `Box`; create root context with `PaintContext(surface, Box(0, 0, LCD_WIDTH, LCD_HEIGHT), Box(0, 0, LCD_WIDTH, LCD_HEIGHT))`.
+- **Adding a screen?** Inherit from `Screen` in `ui/screens/__init__.py`. Create root `PaintContext(surface, Box(0, 0, LCD_WIDTH, LCD_HEIGHT), Box(0, 0, LCD_WIDTH, LCD_HEIGHT))`. Call `set_back_callback(pop_screen)` from `RecoveryApp._push_screen()`. Push via `_push_screen()`, pop via long-press back or `_pop_screen()`.
 - **Adding a font?** Drop the `.ttf` into `ui/fonts/` and update `SafeFont` / `FONT_CACHE` / `SIZES` in `__init__.py`. Never use `pygame.font.Font` — always go through `SafeFont` / `get_font()`.
-- **Menu callbacks** — `Menu.add_item(label, callback)` takes `Callable[[], None]`. Use closures (`lambda: self.foo(arg)`) to capture state. Never pass user data through the callback arg.
+- **Menu callbacks** — `Menu.add_item(label, callback)` takes `Callable[[], None]`. Use closures (`lambda: self.foo(arg)`) to capture state. Never pass user data through the callback arg. For right-aligned badges: `Menu.add_item(label, callback, right="3 changed")`.
+- **Confirm dialog** — `ConfirmDialog(surface, title, on_confirm, on_cancel)` is a modal overlay. It renders on top of the current screen and intercepts all input until dismissed. Use for any destructive action (rollback, factory reset).
 - **Hardware deps** — `lgpio`, `spidev`, `adafruit_*` go in `[hardware]` extra with `sys_platform == 'linux'` markers. Never import outside `try/except ImportError`.

@@ -3,20 +3,33 @@ pistomp-recovery
 
 Package update and recovery service for pi-Stomp.
 
-Runs as an exclusive LCD service alongside mod-ala-pi-stomp. Activates via:
-  - systemd OnFailure when the main app crashes 3+ times in 180 seconds
-  - User selecting "Recovery" from the System Menu
+Runs as an exclusive LCD service (conflicts with mod-ala-pi-stomp). Activates via:
+- systemd OnFailure when the main app crashes 3+ times in 180 seconds
+- User selecting "Recovery" from the System Menu
+
+Features
+--------
+
+- **Crash recovery** — Shows crash log with Resume/Recovery Menu options
+- **Action inbox** — Reset dirty items, update available packages — badge counts on main menu
+- **Per-pedalboard operations** — Stamp, rollback, or factory-reset individual pedalboards
+- **Per-package operations** — Update, stamp, or rollback individual packages with service restart awareness
+- **Factory reset** — Confirm dialog, then resets all facets and reboots
+- **Health check pipeline** — JACK → mod-host → mod-ui → pi-stomp after updates, with automatic rollback on failure
+- **Human-relative timestamps** — "3h ago", "yesterday", "Jun 3"
+- **Navigation stack** — Long-press back, persistent screen state, no per-event recreation
 
 Architecture
 ------------
-- Facets: git-backed versioned config directories (etckeeper model)
-  - config: /home/pistomp/data/config/ (default_config.yml, settings.yml)
-  - pedalboards: /home/pistomp/data/.pedalboards/ (git repo)
-  - packages: pacman package version manifests
+- **Facets**: git-backed versioned state (etckeeper model)
+  - config: default_config.yml, settings.yml
+  - pedalboards: .pedalboards/ git repo with per-subdirectory stamp/rollback
+  - packages: pacman version manifests
   - system: /boot/config.txt, /etc/jackdrc, ALSA state
-- Package management: pacman-based update/rollback with GitHub Releases hosting
-- Health checks: verify JACK → mod-host → mod-ui → pi-stomp after updates
-- LCD UI: pygame-based widget library for 320x240 ILI9341 display
+- **Items**: PedalboardItem and PackageItem data classes for per-unit operations
+- **PACKAGE_SERVICES**: maps packages to dependent services for restart ordering
+- **Package management**: pacman-based update/rollback with health checks
+- **LCD UI**: pygame widget library, 320x240, navigation stack, ConfirmDialog overlay
 
 CLI
 ---
@@ -27,6 +40,16 @@ CLI
 
 Development
 -----------
-    uv sync
-    uv run python -m pistomp_recovery --log DEBUG --force-menu
-    
+    uv sync --group dev
+    uv run pytest                # Run tests
+    uv run pytest --snapshot-update  # Accept changed widget snapshots
+    uv run ruff check src/       # Lint
+    uv run pyright src/           # Type check (zero errors required)
+    uv run pistomp-recovery-emulator  # Interactive pygame window
+
+Emulator controls:
+- ←/→ — Navigate menu
+- Enter/Space — Select
+- L — Long press (back/cancel)
+- Esc — Quit
+- --force-crash — Start in crash recovery mode

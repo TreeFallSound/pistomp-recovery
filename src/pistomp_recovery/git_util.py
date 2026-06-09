@@ -78,6 +78,13 @@ def last_stamp(path: Path, tag_prefix: str) -> str | None:
     return tag_list[-1] if tag_list else None
 
 
+def all_stamps(path: Path, tag_prefix: str) -> list[str]:
+    tags: str = git("tag", "-l", f"stamp/{tag_prefix}/*", cwd=path, check=False)
+    if not tags:
+        return []
+    return [t for t in tags.strip().split("\n") if t.strip()]
+
+
 def current_state(path: Path) -> str | None:
     try:
         return git("rev-parse", "HEAD", cwd=path)

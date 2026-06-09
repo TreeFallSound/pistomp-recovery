@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pygame
 
-from pistomp_recovery.constants import LCD_WIDTH, LCD_HEIGHT
+from pistomp_recovery.constants import LCD_HEIGHT, LCD_WIDTH
 
 
 class LcdPygame:
@@ -28,7 +28,7 @@ class LcdPygame:
         self.height: int = height
         self.surface: pygame.Surface = pygame.Surface((width, height))
         self._has_splash: bool = False
-        pygame.font.init()
+        # pygame.font.init()
 
     @property
     def has_system_splash(self) -> bool:

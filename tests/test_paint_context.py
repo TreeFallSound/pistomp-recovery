@@ -5,7 +5,7 @@ from __future__ import annotations
 import pygame
 
 from pistomp_recovery.pygame_init import init as _pg_init
-from pistomp_recovery.ui.widgets.misc import InputEvent, Box
+from pistomp_recovery.ui.widgets.misc import Box, InputEvent
 from pistomp_recovery.ui.widgets.paint import PaintContext
 
 _pg_init()

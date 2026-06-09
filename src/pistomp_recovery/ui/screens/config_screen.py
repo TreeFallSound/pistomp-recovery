@@ -10,6 +10,7 @@ from pistomp_recovery.facets.system_facet import SystemFacet
 from pistomp_recovery.ui.colors import COLORS
 from pistomp_recovery.ui.widgets.menu import Menu
 from pistomp_recovery.ui.widgets.misc import Box, InputEvent
+from pistomp_recovery.ui.widgets.paint import PaintContext
 from pistomp_recovery.ui.widgets.text import StatusLine
 
 
@@ -34,17 +35,17 @@ class ConfigScreen:
             stamp_text: str = last.split("/")[-1] if last else "never"
             self._menu.add_item(
                 f"{name} (stamp: {stamp_text})",
-                lambda n=name: self._select_facet(n),
+                lambda: self._select_facet(name),
             )
-        self._menu.add_item("← Back", lambda _: None)
+        self._menu.add_item("← Back", lambda: None)
 
     def _select_facet(self, name: str) -> None:
         self._detail_facet = name
         self._menu.clear_items()
-        self._menu.add_item(f"Stamp {name}", lambda n=name: self._stamp(n))
-        self._menu.add_item(f"Rollback {name}", lambda n=name: self._rollback(n))
-        self._menu.add_item(f"Factory reset {name}", lambda n=name: self._factory_reset(n))
-        self._menu.add_item("← Back", lambda _: self._back_to_list())
+        self._menu.add_item(f"Stamp {name}", lambda: self._stamp(name))
+        self._menu.add_item(f"Rollback {name}", lambda: self._rollback(name))
+        self._menu.add_item(f"Factory reset {name}", lambda: self._factory_reset(name))
+        self._menu.add_item("← Back", lambda: self._back_to_list())
 
     def _stamp(self, name: str) -> None:
         facet: Facet = self._facets[name]
@@ -79,7 +80,9 @@ class ConfigScreen:
 
     def draw(self) -> None:
         self._surface.fill(COLORS["bg"])
-        ctx: pygame.Rect = pygame.Rect(0, 0, 320, 240)
+        ctx: PaintContext = PaintContext(
+            self._surface, Box(0, 0, 320, 240), Box(0, 0, 320, 240)
+        )
         self._menu.draw(ctx)
         self._status.draw(ctx)
 

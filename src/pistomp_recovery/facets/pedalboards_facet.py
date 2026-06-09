@@ -31,7 +31,8 @@ class PedalboardsFacet(Facet):
         self.path.mkdir(parents=True, exist_ok=True)
         git_util.git("clone",
                      "https://github.com/TreeFallSound/pi-stomp-pedalboards.git",
-                     str(self.path))
+                     str(self.path),
+                     cwd=self.path.parent)
         git_util.git("checkout", "-b", git_util.DEVICE_BRANCH, cwd=self.path)
         git_util.git("branch", git_util.FACTORY_BRANCH, cwd=self.path)
 

@@ -1,3 +1,4 @@
+# pyright: reportUnknownVariableType=false
 """Font wrapper using pygame._freetype with bundled DejaVu Sans.
 
 Matches the pi-stomp font family. Bundled TTF files ensure
@@ -9,7 +10,7 @@ from __future__ import annotations
 import os
 
 import pygame
-import pygame._freetype as _freetype
+import pygame._freetype as _freetype  # type: ignore[attr-defined]
 
 from pistomp_recovery.pygame_init import init as _pg_init
 
@@ -26,7 +27,7 @@ SIZES: dict[str, int] = {
     "status": 14,
 }
 
-_BOLD_SIZES: set[int] = {SIZES["title"], SIZES["heading"]}
+_BOLD_SIZES: frozenset[int] = frozenset({SIZES["title"], SIZES["heading"]})
 
 
 class SafeFont:
@@ -34,16 +35,16 @@ class SafeFont:
 
     def __init__(self, path: str, size: int) -> None:
         _pg_init()
-        self._ft: _freetype.Font = _freetype.Font(path, size)
+        self._ft: _freetype.Font = _freetype.Font(path, size)  # type: ignore[assignment]
 
     def render(
         self, text: str, antialias: bool, color: tuple[int, int, int] | tuple[int, int, int, int]
     ) -> pygame.Surface:
-        surf, _ = self._ft.render(text, color)
-        return surf
+        result = self._ft.render(text, color)  # type: ignore[union-attr]
+        return result[0]
 
     def get_rect(self, text: str) -> pygame.Rect:
-        return self._ft.get_rect(text)
+        return self._ft.get_rect(text)  # type: ignore[union-attr]
 
     def size(self, text: str) -> tuple[int, int]:
         rect = self.get_rect(text)
@@ -51,7 +52,7 @@ class SafeFont:
 
     @property
     def height(self) -> int:
-        return self._ft.get_rect("Ag").height
+        return self._ft.get_rect("Ag").height  # type: ignore[union-attr]
 
 
 FONT_CACHE: dict[tuple[str, int], SafeFont] = {}

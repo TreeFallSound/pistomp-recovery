@@ -23,11 +23,11 @@ class InputManager:
     def start(self) -> None:
         try:
             from gpiozero import Button  # type: ignore[import-untyped]
-            self._switch = Button(SWITCH_GPIO, bounce_time=0.02)
-            switch = self._switch
+            self._switch = Button(SWITCH_GPIO, bounce_time=0.02)  # type: ignore[union-attr]
+            switch = self._switch  # type: ignore[assignment]
             assert isinstance(switch, Button)
-            switch.when_pressed = self._on_press
-            switch.when_released = self._on_release
+            switch.when_pressed = self._on_press  # type: ignore[union-attr]
+            switch.when_released = self._on_release  # type: ignore[union-attr]
         except ImportError:
             logger.warning("gpiozero not available, switch input disabled")
 

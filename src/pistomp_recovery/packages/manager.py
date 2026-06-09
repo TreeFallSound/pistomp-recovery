@@ -24,7 +24,7 @@ class UpdateState(Enum):
 @dataclass
 class UpdateResult:
     state: UpdateState = UpdateState.IDLE
-    packages_updated: list[str] = field(default_factory=list)
+    packages_updated: list[str] = field(default_factory=list[str])
     error: str | None = None
     rolled_back: bool = False
 

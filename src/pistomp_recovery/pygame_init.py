@@ -25,7 +25,7 @@ def init(headless: bool = True) -> None:
         import pygame._freetype as _freetype
 
         pygame.init()
-        _freetype.init()
+        _freetype.init()  # type: ignore[union-attr]
         _initialized = True
 
 

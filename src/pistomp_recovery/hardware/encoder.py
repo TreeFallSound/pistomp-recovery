@@ -1,3 +1,4 @@
+# pyright: reportUnknownMemberType=false
 from __future__ import annotations
 
 import logging
@@ -27,16 +28,16 @@ class EncoderInput:
             logger.warning("gpiozero not available, encoder input disabled")
             return
 
-        self._button_d = Button(self._pin_d, bounce_time=ENCODER_DEBOUNCE_MS / 1000)
-        self._button_clk = Button(self._pin_clk, bounce_time=ENCODER_DEBOUNCE_MS / 1000)
+        self._button_d = Button(self._pin_d, bounce_time=ENCODER_DEBOUNCE_MS / 1000)  # type: ignore[assignment]
+        self._button_clk = Button(self._pin_clk, bounce_time=ENCODER_DEBOUNCE_MS / 1000)  # type: ignore[assignment]
 
         edge_handler = self._on_edge
         assert self._button_d is not None
         assert self._button_clk is not None
-        self._button_d.when_pressed = edge_handler
-        self._button_d.when_released = edge_handler
-        self._button_clk.when_pressed = edge_handler
-        self._button_clk.when_released = edge_handler
+        self._button_d.when_pressed = edge_handler  # type: ignore[union-attr]
+        self._button_d.when_released = edge_handler  # type: ignore[union-attr]
+        self._button_clk.when_pressed = edge_handler  # type: ignore[union-attr]
+        self._button_clk.when_released = edge_handler  # type: ignore[union-attr]
 
         self._running = True
         logger.info("Encoder input started on pins D=%d CLK=%d", self._pin_d, self._pin_clk)

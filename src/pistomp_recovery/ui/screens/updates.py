@@ -6,6 +6,7 @@ from pistomp_recovery.packages.manager import PackageManager
 from pistomp_recovery.ui.colors import COLORS
 from pistomp_recovery.ui.widgets.menu import Menu
 from pistomp_recovery.ui.widgets.misc import Box, InputEvent
+from pistomp_recovery.ui.widgets.paint import PaintContext
 from pistomp_recovery.ui.widgets.text import StatusLine
 
 
@@ -36,16 +37,16 @@ class UpdatesScreen:
                     f"{pkg} {old_ver} → {new_ver}",
                     lambda p=pkg: self._select_package(p),
                 )
-            self._menu.add_item("Install All", lambda _: self._install_all())
-            self._menu.add_item("← Back", lambda _: None)
+            self._menu.add_item("Install All", self._install_all)
+            self._menu.add_item("← Back", lambda: None)
             self._status.set_text(
                 f"{len(self._updates)} updates available",
                 COLORS["text_success"],
             )
             self._state = "available"
         else:
-            self._menu.add_item("No updates available", lambda _: None)
-            self._menu.add_item("← Back", lambda _: None)
+            self._menu.add_item("No updates available", lambda: None)
+            self._menu.add_item("← Back", lambda: None)
             self._status.set_text("System is up to date", COLORS["text_success"])
             self._state = "none"
 
@@ -67,7 +68,9 @@ class UpdatesScreen:
 
     def draw(self) -> None:
         self._surface.fill(COLORS["bg"])
-        ctx: pygame.Rect = pygame.Rect(0, 0, 320, 240)
+        ctx: PaintContext = PaintContext(
+            self._surface, Box(0, 0, 320, 240), Box(0, 0, 320, 240)
+        )
         self._menu.draw(ctx)
         self._status.draw(ctx)
 

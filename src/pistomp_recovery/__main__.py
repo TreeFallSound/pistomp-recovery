@@ -59,6 +59,9 @@ class RecoveryApp:
         self._input.start()
         logger.info("Recovery app initialized (boot mode: %s)", self._boot_mode.name)
 
+    def stop(self) -> None:
+        self._running = False
+
     def run(self) -> None:
         while self._running:
             events: list[InputEvent] = self._input.poll()
@@ -69,20 +72,16 @@ class RecoveryApp:
 
     def _handle_event(self, event: InputEvent) -> None:
         if self._current_screen == "crash":
-            screen: CrashScreen = self._make_crash_screen()
+            self._make_crash_screen()
             if event in (InputEvent.CLICK, InputEvent.LONG_CLICK):
-                if screen.handle_event(event):
-                    action: str | None = None
-                    if event == InputEvent.CLICK:
-                        action = "recovery"
-            self._current_screen = "menu"
+                self._current_screen = "menu"
 
         elif self._current_screen == "menu":
             menu_screen: MainMenuScreen = self._make_menu_screen()
             if menu_screen.handle_event(event):
-                action: MenuAction | None = menu_screen.action
-                if action is not None:
-                    self._on_menu_action(action)
+                menu_action: MenuAction | None = menu_screen.action
+                if menu_action is not None:
+                    self._on_menu_action(menu_action)
 
         elif self._current_screen == "updates":
             updates_screen: UpdatesScreen = self._make_updates_screen()
@@ -180,7 +179,7 @@ def main(args: list[str] | None = None) -> None:
 
     def handle_signal(signum: int, frame: object) -> None:
         logger.info("Received signal %d, shutting down", signum)
-        app._running = False
+        app.stop()
 
     signal.signal(signal.SIGINT, handle_signal)
     signal.signal(signal.SIGTERM, handle_signal)

@@ -6,6 +6,7 @@ from pistomp_recovery.packages.manager import UpdateState
 from pistomp_recovery.ui.colors import COLORS
 from pistomp_recovery.ui.fonts import SIZES, SafeFont, get_font
 from pistomp_recovery.ui.widgets.misc import Box, InputEvent
+from pistomp_recovery.ui.widgets.paint import PaintContext
 from pistomp_recovery.ui.widgets.text import ProgressBar, StatusLine
 
 
@@ -43,7 +44,9 @@ class StatusScreen:
         title_rect: pygame.Rect = title_surf.get_rect(centerx=160, y=30)
         self._surface.blit(title_surf, title_rect)
 
-        ctx: pygame.Rect = pygame.Rect(0, 0, 320, 240)
+        ctx: PaintContext = PaintContext(
+            self._surface, Box(0, 0, 320, 240), Box(0, 0, 320, 240)
+        )
         self._progress.draw(ctx)
         self._status.draw(ctx)
 

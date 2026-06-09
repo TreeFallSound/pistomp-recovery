@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Literal
 
+Color = tuple[int, int, int] | tuple[int, int, int, int]
+
 ColorName = Literal[
     "bg",
     "panel_bg",
@@ -20,7 +22,7 @@ ColorName = Literal[
     "overlay",
 ]
 
-COLORS: dict[ColorName, tuple[int, int, int] | tuple[int, int, int, int]] = {
+COLORS: dict[ColorName, Color] = {
     "bg": (18, 18, 24),
     "panel_bg": (28, 28, 38),
     "panel_border": (60, 60, 78),

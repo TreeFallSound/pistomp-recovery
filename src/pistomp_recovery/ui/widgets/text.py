@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pygame
 
-from pistomp_recovery.ui.colors import COLORS
+from pistomp_recovery.ui.colors import COLORS, Color
 from pistomp_recovery.ui.fonts import SafeFont, get_font
 from pistomp_recovery.ui.widgets.misc import Box
 from pistomp_recovery.ui.widgets.paint import PaintContext
@@ -14,12 +14,12 @@ class TextWidget(Widget):
         self,
         bounds: Box,
         text: str,
-        color: tuple[int, int, int] | None = None,
+        color: Color | None = None,
         font_size: int = 20,
     ) -> None:
         super().__init__(bounds)
         self.text: str = text
-        self.color: tuple[int, int, int] = color or COLORS["text_bright"]
+        self.color: Color = color or COLORS["text_bright"]
         self.font_size: int = font_size
         self._font: SafeFont | None = None
 
@@ -76,14 +76,14 @@ class ProgressBar(Widget):
 
 class StatusLine(Widget):
     def __init__(
-        self, bounds: Box, text: str = "", color: tuple[int, int, int] | None = None
+        self, bounds: Box, text: str = "", color: Color | None = None
     ) -> None:
         super().__init__(bounds)
         self.text: str = text
-        self.color: tuple[int, int, int] = color or COLORS["text_dim"]
+        self.color: Color = color or COLORS["text_dim"]
 
     def set_text(
-        self, text: str, color: tuple[int, int, int] | None = None
+        self, text: str, color: Color | None = None
     ) -> None:
         self.text = text
         if color is not None:

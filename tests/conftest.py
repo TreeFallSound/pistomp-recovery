@@ -6,18 +6,20 @@ Injected into sys.modules at import time so application code can be imported in 
 import os
 import sys
 from pathlib import Path
+from typing import Callable
 from unittest.mock import MagicMock
 
 # Initialize pygame headlessly before any uilib/test imports.
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 
 from pistomp_recovery.pygame_init import init as _pg_init
+from pistomp_recovery.ui.widgets.misc import InputEvent
 
 _pg_init()
-import pygame
 
-import pytest
-from PIL import Image
+import pygame  # noqa: E402
+import pytest  # noqa: E402
+from PIL import Image  # noqa: E402
 
 PROJECT_ROOT = Path(__file__).parent.parent
 _TESTS_DIR = Path(__file__).parent
@@ -46,69 +48,6 @@ _PI_MODULES: list[str] = [
 for _mod in _PI_MODULES:
     if _mod not in sys.modules:
         sys.modules[_mod] = MagicMock()
-
-
-# ---------------------------------------------------------------------------
-# Snapshot helpers
-# ---------------------------------------------------------------------------
-
-
-def pytest_addoption(parser: pytest.Parser) -> None:
-    parser.addoption(
-        "--snapshot-update",
-        action="store_true",
-        default=False,
-        help="Overwrite stored snapshots with current output",
-    )
-
-
-@pytest.fixture
-def snapshot_update(request: pytest.FixtureRequest) -> bool:
-    return bool(request.config.getoption("--snapshot-update"))
-
-
-def assert_snapshot(
-    image: Image.Image,
-    name: str,
-    *,
-    update: bool = False,
-) -> None:
-    path = _SNAPSHOT_DIR / f"{name}.png"
-    rgb = image.convert("RGB")
-    if update or not path.exists():
-        path.parent.mkdir(parents=True, exist_ok=True)
-        rgb.save(path)
-        return
-    expected = Image.open(path).convert("RGB")
-    assert rgb.tobytes() == expected.tobytes(), (
-        f"Snapshot mismatch: {name} (re-run with --snapshot-update to accept)"
-    )
-
-
-@pytest.fixture
-def snapshot(request: pytest.FixtureRequest, fake_lcd: "FakeLcd", snapshot_update: bool):
-    """Assert the latest LCD frame matches a stored PNG snapshot.
-
-    Path is auto-derived from the test file and function name.
-    Call snapshot() for auto-numbered frames or snapshot("label") for named ones.
-    Re-use the same label to assert the screen returned to an earlier state.
-    """
-    counter = [0]
-    rel = Path(request.fspath).relative_to(_TESTS_DIR)
-    module = str(rel.with_suffix(""))
-    test = request.node.name
-
-    def _assert(suffix: str | None = None) -> None:
-        if suffix is None:
-            suffix = str(counter[0])
-            counter[0] += 1
-        assert_snapshot(
-            fake_lcd.frames[-1],
-            f"{module}/{test}/{suffix}",
-            update=snapshot_update,
-        )
-
-    return _assert
 
 
 # ---------------------------------------------------------------------------
@@ -143,11 +82,6 @@ class FakeLcd:
     def clear(self) -> None:
         img = Image.new("RGB", (self.width, self.height), (0, 0, 0))
         self.frames.append(img)
-
-
-@pytest.fixture
-def fake_lcd() -> FakeLcd:
-    return FakeLcd()
 
 
 # ---------------------------------------------------------------------------
@@ -192,9 +126,7 @@ class FakeInputManager:
     def inject_click(self, long: bool = False) -> None:
         self._click_queue.append(long)
 
-    def poll(self) -> list:
-        from pistomp_recovery.ui.widgets.misc import InputEvent
-
+    def poll(self) -> list[InputEvent]:
         events: list[InputEvent] = []
         direction: int = self._encoder.poll()
         if direction > 0:
@@ -205,6 +137,76 @@ class FakeInputManager:
             long = self._click_queue.pop(0)
             events.append(InputEvent.LONG_CLICK if long else InputEvent.CLICK)
         return events
+
+
+# ---------------------------------------------------------------------------
+# Snapshot helpers
+# ---------------------------------------------------------------------------
+
+
+def pytest_addoption(parser: pytest.Parser) -> None:
+    parser.addoption(
+        "--snapshot-update",
+        action="store_true",
+        default=False,
+        help="Overwrite stored snapshots with current output",
+    )
+
+
+@pytest.fixture
+def snapshot_update(request: pytest.FixtureRequest) -> bool:
+    return bool(request.config.getoption("--snapshot-update"))
+
+
+def assert_snapshot(
+    image: Image.Image,
+    name: str,
+    *,
+    update: bool = False,
+) -> None:
+    path = _SNAPSHOT_DIR / f"{name}.png"
+    rgb = image.convert("RGB")
+    if update or not path.exists():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        rgb.save(path)
+        return
+    expected = Image.open(path).convert("RGB")
+    assert rgb.tobytes() == expected.tobytes(), (
+        f"Snapshot mismatch: {name} (re-run with --snapshot-update to accept)"
+    )
+
+
+@pytest.fixture
+def snapshot(
+    request: pytest.FixtureRequest, fake_lcd: FakeLcd, snapshot_update: bool
+) -> Callable[..., None]:
+    """Assert the latest LCD frame matches a stored PNG snapshot.
+
+    Path is auto-derived from the test file and function name.
+    Call snapshot() for auto-numbered frames or snapshot("label") for named ones.
+    Re-use the same label to assert the screen returned to an earlier state.
+    """
+    counter = [0]
+    rel = Path(request.path).relative_to(_TESTS_DIR)
+    module: str = str(rel.with_suffix(""))
+    test: str = str(request.node.name)  # type: ignore[union-attr]
+
+    def _assert(suffix: str | None = None) -> None:
+        if suffix is None:
+            suffix = str(counter[0])
+            counter[0] += 1
+        assert_snapshot(
+            fake_lcd.frames[-1],
+            f"{module}/{test}/{suffix}",
+            update=snapshot_update,
+        )
+
+    return _assert
+
+
+@pytest.fixture
+def fake_lcd() -> FakeLcd:
+    return FakeLcd()
 
 
 @pytest.fixture

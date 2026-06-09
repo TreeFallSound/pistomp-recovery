@@ -4,7 +4,7 @@ from typing import Callable
 
 import pygame
 
-from pistomp_recovery.ui.colors import COLORS
+from pistomp_recovery.ui.colors import COLORS, Color
 from pistomp_recovery.ui.fonts import get_font
 from pistomp_recovery.ui.widgets.container import Container
 from pistomp_recovery.ui.widgets.misc import Box, InputEvent
@@ -13,7 +13,7 @@ from pistomp_recovery.ui.widgets.paint import PaintContext
 ITEM_HEIGHT: int = 22
 MARGIN: int = 4
 
-MenuItem = tuple[str, Callable[[object | None], None], object | None]
+MenuItem = tuple[str, Callable[[], None]]
 
 
 class Menu(Container):
@@ -26,9 +26,9 @@ class Menu(Container):
         self.auto_dismiss: bool = False
 
     def add_item(
-        self, label: str, callback: Callable[[object | None], None], arg: object | None = None
+        self, label: str, callback: Callable[[], None]
     ) -> None:
-        self.items.append((label, callback, arg))
+        self.items.append((label, callback))
         self.mark_dirty()
 
     def clear_items(self) -> None:
@@ -58,8 +58,8 @@ class Menu(Container):
             return True
         elif event == InputEvent.CLICK:
             if 0 <= self.sel_index < len(self.items):
-                _, callback, arg = self.items[self.sel_index]
-                callback(arg)
+                _, callback = self.items[self.sel_index]
+                callback()
                 return True
         return False
 
@@ -89,7 +89,7 @@ class Menu(Container):
                 )
                 pygame.draw.rect(surface, COLORS["selection_bg"], sel_rect, border_radius=3)
 
-            text_color: tuple[int, int, int] = (
+            text_color: Color = (
                 COLORS["text_bright"] if is_selected else COLORS["text_dim"]
             )
             text_surf: pygame.Surface = font.render(label, True, text_color)

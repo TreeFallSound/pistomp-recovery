@@ -13,7 +13,7 @@ class Facet(ABC):
     path: Path
     repo_path: Path
 
-    def __init__(self, name: str, path: Path) -> None:
+    def __init__(self, name: str, path: str | Path) -> None:
         self.name = name
         self.path = Path(path)
         self.repo_path = Path(RECOVERY_DIR) / f"{name}.git"

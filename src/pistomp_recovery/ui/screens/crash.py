@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+from typing import Callable
+
 import pygame
 
 from pistomp_recovery.ui.colors import COLORS
 from pistomp_recovery.ui.fonts import SIZES, SafeFont, get_font
 from pistomp_recovery.ui.widgets.menu import Menu
 from pistomp_recovery.ui.widgets.misc import Box, InputEvent
+from pistomp_recovery.ui.widgets.paint import PaintContext
 
 
 class Screen:
@@ -24,16 +27,16 @@ class CrashScreen(Screen):
         self,
         display_surface: pygame.Surface,
         crash_log: str = "",
-        on_resume: callable | None = None,
-        on_recovery: callable | None = None,
+        on_resume: Callable[[], None] | None = None,
+        on_recovery: Callable[[], None] | None = None,
     ) -> None:
         super().__init__(display_surface)
         self._crash_log: str = crash_log
-        self._on_resume: callable | None = on_resume
-        self._on_recovery: callable | None = on_recovery
+        self._on_resume: Callable[[], None] | None = on_resume
+        self._on_recovery: Callable[[], None] | None = on_recovery
         self._menu: Menu = Menu(Box(10, 40, 300, 190), title="App Crashed")
-        self._menu.add_item("Resume", lambda _: self._resume())
-        self._menu.add_item("Recovery Menu", lambda _: self._recovery())
+        self._menu.add_item("Resume", self._resume)
+        self._menu.add_item("Recovery Menu", self._recovery)
 
     def _resume(self) -> None:
         if self._on_resume:
@@ -58,7 +61,9 @@ class CrashScreen(Screen):
                 log_surf: pygame.Surface = log_font.render(line[:40], True, COLORS["text_dim"])
                 self._surface.blit(log_surf, (10, 30 + i * 14))
 
-        ctx: pygame.Rect = pygame.Rect(0, 0, 320, 240)
+        ctx: PaintContext = PaintContext(
+            self._surface, Box(0, 0, 320, 240), Box(0, 0, 320, 240)
+        )
         self._menu.draw(ctx)
 
     def handle_event(self, event: InputEvent) -> bool:

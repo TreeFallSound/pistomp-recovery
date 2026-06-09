@@ -1,11 +1,15 @@
-# pyright: basic
+# pyright: reportUnknownMemberType=false, reportUnknownVariableType=false
 from __future__ import annotations
 
 import logging
 import threading
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from pistomp_recovery.constants import INIT_STAMP, LCD_HEIGHT, LCD_WIDTH
+
+if TYPE_CHECKING:
+    import pygame
 
 logger = logging.getLogger(__name__)
 
@@ -31,21 +35,21 @@ class LcdSpi:
 
     def init(self) -> None:
         try:
-            import board  # pyright: ignore[reportMissingImports]
-            import digitalio  # pyright: ignore[reportMissingImports]
-            from adafruit_rgb_display import ili9341  # pyright: ignore[reportMissingImports]
+            import board  # type: ignore[import-untyped]
+            import digitalio  # type: ignore[import-untyped]
+            from adafruit_rgb_display import ili9341  # type: ignore[import-untyped]
         except ImportError:
             logger.error("LCD dependencies not available (board, adafruit_rgb_display)")
             raise
 
-        spi = board.SPI()
-        cs_pin = digitalio.DigitalInOut(board.CE0)
-        dc_pin = digitalio.DigitalInOut(board.D6)
-        rst_pin = digitalio.DigitalInOut(board.D5)
+        spi = board.SPI()  # type: ignore[union-attr]
+        cs_pin = digitalio.DigitalInOut(board.CE0)  # type: ignore[union-attr]
+        dc_pin = digitalio.DigitalInOut(board.D6)  # type: ignore[union-attr]
+        rst_pin = digitalio.DigitalInOut(board.D5)  # type: ignore[union-attr]
 
-        rst: object | None = None if self.has_system_splash else rst_pin
+        rst = None if self.has_system_splash else rst_pin  # type: ignore[assignment]
 
-        self._disp = ili9341.ILI9341(
+        self._disp = ili9341.ILI9341(  # type: ignore[union-attr]
             spi,
             cs=cs_pin,
             dc=dc_pin,
@@ -64,15 +68,16 @@ class LcdSpi:
         except OSError:
             pass
 
-    def update(self, surface: object) -> None:
+    def update(self, surface: pygame.Surface) -> None:
         import pygame
 
         with self._lock:
             if self._disp is None:
                 return
 
-            assert isinstance(surface, pygame.Surface)
-            img: pygame.Surface = pygame.transform.rotate(surface, 180 if self._flip else 0)
+            img: pygame.Surface = pygame.transform.rotate(
+                surface, 180 if self._flip else 0
+            )
             rgb: bytes = pygame.image.tostring(img, "RGB")
 
             from PIL import Image  # type: ignore[import-untyped]

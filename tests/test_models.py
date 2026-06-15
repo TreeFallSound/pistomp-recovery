@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from pistomp_recovery.items import Action, Item
+from pistomp_recovery.items import Action, Item, Row, Target
 from pistomp_recovery.util import human_time
 
 
@@ -81,3 +81,27 @@ class TestItem:
     def test_action_no_confirm(self) -> None:
         action: Action = Action("Rollback", lambda: None)
         assert action.confirm is None
+
+
+class TestRowTarget:
+    def test_target_defaults(self) -> None:
+        target: Target = Target("JACK", lambda: None)
+        assert target.enabled is True
+        assert target.confirm is None
+
+    def test_disabled_target(self) -> None:
+        target: Target = Target("Plugins", lambda: None, enabled=False)
+        assert target.enabled is False
+
+    def test_row_with_multiple_targets(self) -> None:
+        row: Row = Row(
+            (Target("JACK", lambda: None), Target("MOD", lambda: None)),
+            prefix="RESTART ",
+        )
+        assert len(row.targets) == 2
+        assert row.prefix == "RESTART "
+        assert row.right == ""
+
+    def test_row_default_empty(self) -> None:
+        row: Row = Row(prefix="static line")
+        assert row.targets == ()

@@ -160,32 +160,51 @@ class AppHarness:
             self.app._display.update(self.app._display.surface)
             self.app._dirty = False
 
+    def redraw(self) -> None:
+        """Force a draw + frame capture (e.g. after a programmatic state change)."""
+        self.app._draw_current_screen()
+        self.app._display.update(self.app._display.surface)
+        self.app._dirty = False
+
     def scroll_to(self, label: str) -> None:
-        """Scroll the current menu until the given label is selected."""
-        menu = self._current_menu()
+        """Rotate selection until a target whose label contains ``label``."""
+        menu = self._menu()
         if menu is None:
             return
-        for _ in range(len(menu.items) * 2):
-            if menu.sel_index < len(menu.items):
-                current_label = menu.items[menu.sel_index][0]
-                if label in current_label:
-                    return
+        for _ in range(len(menu._nav) * 2):
+            target = menu._target_at(menu._nav[menu._sel])
+            if label in target.label:
+                return
             self.inject(InputEvent.RIGHT)
-        raise RuntimeError(f"Could not find menu item: {label}")
+        raise RuntimeError(f"Could not find target: {label}")
 
     def select(self, label: str) -> None:
-        """Scroll to and click a menu item."""
+        """Scroll to and click a target."""
         self.scroll_to(label)
         self.inject(InputEvent.CLICK)
 
     def long_press(self) -> None:
         self.inject(InputEvent.LONG_CLICK)
 
-    def _current_menu(self) -> "Menu | None":
+    def nav_labels(self) -> list[str]:
+        """Labels of every navigable target on the current screen."""
+        menu = self._menu()
+        if menu is None:
+            return []
+        return [menu._target_at(pos).label for pos in menu._nav]
+
+    def row_labels(self) -> list[str]:
+        """Labels of every target across all rows (incl. disabled)."""
+        menu = self._menu()
+        if menu is None:
+            return []
+        return [t.label for row in menu._rows for t in row.targets]
+
+    def _menu(self) -> "MenuScreen | None":
         screen = self.app._current_screen()
         from pistomp_recovery.ui.screens.menu_screen import MenuScreen
         if isinstance(screen, MenuScreen):
-            return screen._menu
+            return screen
         return None
 
     @property
@@ -208,10 +227,10 @@ def recovery_app(fake_encoder: FakeEncoder, fake_input: FakeInputManager, fake_l
     monkeypatch.setattr("pistomp_recovery.__main__.start_main_app", lambda: True)
     # Prevent package/git calls from failing in tests
     monkeypatch.setattr("pistomp_recovery.__main__.list_pedalboard_items", lambda: [])
-    monkeypatch.setattr("pistomp_recovery.__main__.list_package_items", lambda: [])
     monkeypatch.setattr("pistomp_recovery.__main__.get_available_updates", lambda: [])
     monkeypatch.setattr("pistomp_recovery.__main__.list_config_items", lambda: [])
     monkeypatch.setattr("pistomp_recovery.__main__.list_system_items", lambda: [])
+    monkeypatch.setattr("pistomp_recovery.__main__.recovery_sha", lambda: "abc1234")
 
     app = RecoveryApp(BootMode.USER_RECOVERY)
     # Swap in fakes before init

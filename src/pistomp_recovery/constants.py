@@ -35,6 +35,22 @@ PISTOMP_PACKAGES: tuple[str, ...] = (
     "pistomp-recovery",
 )
 
+# Which recovery domain each package's updates belong to. The four recovery
+# domains are pedalboards / plugins / config / system; all currently-tracked
+# packages are OS/audio infrastructure, so they map to "system". Per-domain
+# plugin/config packages can be reassigned here without touching the UI.
+DOMAIN_PEDALBOARDS: str = "pedalboards"
+DOMAIN_PLUGINS: str = "plugins"
+DOMAIN_CONFIG: str = "config"
+DOMAIN_SYSTEM: str = "system"
+
+PACKAGE_DOMAIN: dict[str, str] = {pkg: DOMAIN_SYSTEM for pkg in PISTOMP_PACKAGES}
+
+
+def domain_for_package(pkg: str) -> str:
+    return PACKAGE_DOMAIN.get(pkg, DOMAIN_SYSTEM)
+
+
 PISTOMP_SERVICES: tuple[str, ...] = (
     "jack",
     "mod-host",

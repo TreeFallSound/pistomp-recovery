@@ -6,36 +6,43 @@ Color = tuple[int, int, int] | tuple[int, int, int, int]
 
 ColorName = Literal[
     "bg",
-    "panel_bg",
-    "panel_border",
-    "selection_bg",
-    "text_bright",
+    "text",
     "text_dim",
-    "text_accent",
-    "text_warning",
-    "text_error",
-    "text_success",
+    "accent",
+    "warning",
+    "error",
+    "success",
+    "title_bg",
+    "title_fg",
+    "sel_bg",
+    "sel_fg",
+    "disabled",
+    "divider",
     "progress_bg",
     "progress_fg",
-    "scroll_thumb",
-    "divider",
     "overlay",
 ]
 
+# Softened EGA / QBASIC IDE palette. The classic IDE was a deep EGA blue
+# (#0000AA) with bright text and a light-gray menu bar; this brightens the
+# blue and warms the whites a touch so it stays legible on the small ILI9341.
+# Selection is reverse video (light box, blue text) rather than a coloured
+# highlight, matching DOS-era list boxes.
 COLORS: dict[ColorName, Color] = {
-    "bg": (18, 18, 24),
-    "panel_bg": (28, 28, 38),
-    "panel_border": (60, 60, 78),
-    "selection_bg": (50, 90, 160),
-    "text_bright": (240, 240, 240),
-    "text_dim": (140, 140, 160),
-    "text_accent": (80, 180, 255),
-    "text_warning": (255, 180, 40),
-    "text_error": (255, 80, 80),
-    "text_success": (80, 220, 120),
-    "progress_bg": (40, 40, 55),
-    "progress_fg": (70, 140, 220),
-    "scroll_thumb": (80, 80, 100),
-    "divider": (50, 50, 68),
-    "overlay": (0, 0, 0, 160),
+    "bg": (26, 26, 140),         # softened EGA blue background
+    "text": (240, 240, 240),     # bright body text
+    "text_dim": (150, 150, 205), # de-emphasised text / separators
+    "accent": (90, 230, 230),    # cyan accent (badges, values)
+    "warning": (240, 210, 80),   # yellow
+    "error": (240, 90, 90),      # red
+    "success": (110, 230, 130),  # green
+    "title_bg": (200, 200, 200), # light-gray inverted title bar
+    "title_fg": (20, 20, 120),   # blue text on the title bar
+    "sel_bg": (235, 235, 235),   # reverse-video reticule box
+    "sel_fg": (20, 20, 120),     # blue text inside the reticule
+    "disabled": (95, 95, 150),   # dimmed/non-selectable text
+    "divider": (70, 70, 150),
+    "progress_bg": (20, 20, 90),
+    "progress_fg": (90, 230, 230),
+    "overlay": (0, 0, 0, 150),
 }

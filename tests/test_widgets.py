@@ -13,8 +13,8 @@ import pytest
 
 from pistomp_recovery.constants import LCD_HEIGHT, LCD_WIDTH
 from pistomp_recovery.ui.colors import COLORS
-from pistomp_recovery.ui.widgets.menu import Menu
-from pistomp_recovery.ui.widgets.misc import Box, InputEvent
+from pistomp_recovery.ui.widgets.header import ICON_BACK, ICON_EXIT, Header
+from pistomp_recovery.ui.widgets.misc import Box
 from pistomp_recovery.ui.widgets.text import ProgressBar, StatusLine
 from tests.conftest import FakeLcd
 
@@ -24,46 +24,31 @@ def surface() -> pygame.Surface:
     return pygame.Surface((LCD_WIDTH, LCD_HEIGHT))
 
 
-class TestMenuWidget:
-    def test_menu_items(
+class TestHeader:
+    def test_exit_icon_unselected(
         self, surface: pygame.Surface, fake_lcd: FakeLcd, snapshot: Callable[..., None]
     ) -> None:
-        menu: Menu = Menu(Box(4, 4, 312, 232), title="Recovery")
-        menu.add_item("Resume", lambda: None)
-        menu.add_item("System Info", lambda: None)
-        menu.add_item("Package Updates", lambda: None)
-        menu.add_item("Config Management", lambda: None)
-        menu.add_item("Factory Reset", lambda: None)
-        menu.add_item("Reboot", lambda: None)
-        menu.add_item("Power Off", lambda: None)
-
         surface.fill(COLORS["bg"])
-        menu.draw(surface)
+        Header("pi-Stomp! Recovery abc1234", ICON_EXIT).draw(
+            surface, icon_selected=False
+        )
         fake_lcd.update(surface)
         snapshot()
 
-    def test_menu_scroll(
+    def test_back_icon_selected(
         self, surface: pygame.Surface, fake_lcd: FakeLcd, snapshot: Callable[..., None]
     ) -> None:
-        menu: Menu = Menu(Box(4, 4, 312, 100), title="Select")
-        for i in range(20):
-            menu.add_item(f"Item {i + 1}", lambda: None)
-        for _ in range(10):
-            menu.handle_event(InputEvent.RIGHT)
-        for _ in range(2):
-            menu.handle_event(InputEvent.LEFT)
-
         surface.fill(COLORS["bg"])
-        menu.draw(surface)
+        Header("Pedalboards", ICON_BACK).draw(surface, icon_selected=True)
         fake_lcd.update(surface)
-        snapshot("scrolled")
+        snapshot()
 
 
 class TestProgressBar:
     def test_empty_progress(
         self, surface: pygame.Surface, fake_lcd: FakeLcd, snapshot: Callable[..., None]
     ) -> None:
-        bar: ProgressBar = ProgressBar(Box(20, 100, 280, 30))
+        bar: ProgressBar = ProgressBar(Box(16, 112, 288, 16))
         surface.fill(COLORS["bg"])
         bar.draw(surface)
         fake_lcd.update(surface)
@@ -73,7 +58,7 @@ class TestProgressBar:
         self, surface: pygame.Surface, fake_lcd: FakeLcd, snapshot: Callable[..., None]
     ) -> None:
         bar: ProgressBar = ProgressBar(
-            Box(20, 100, 280, 30), progress=0.5, label="Installing..."
+            Box(16, 112, 288, 16), progress=0.5, label="Installing..."
         )
         surface.fill(COLORS["bg"])
         bar.draw(surface)
@@ -84,7 +69,7 @@ class TestProgressBar:
         self, surface: pygame.Surface, fake_lcd: FakeLcd, snapshot: Callable[..., None]
     ) -> None:
         bar: ProgressBar = ProgressBar(
-            Box(20, 100, 280, 30), progress=1.0, label="Complete"
+            Box(16, 112, 288, 16), progress=1.0, label="Complete"
         )
         surface.fill(COLORS["bg"])
         bar.draw(surface)
@@ -97,7 +82,7 @@ class TestStatusLine:
         self, surface: pygame.Surface, fake_lcd: FakeLcd, snapshot: Callable[..., None]
     ) -> None:
         status: StatusLine = StatusLine(
-            Box(4, 210, 312, 22), text="3 updates available"
+            Box(0, 224, LCD_WIDTH, 16), text="3 updates available"
         )
         surface.fill(COLORS["bg"])
         status.draw(surface)
@@ -108,9 +93,9 @@ class TestStatusLine:
         self, surface: pygame.Surface, fake_lcd: FakeLcd, snapshot: Callable[..., None]
     ) -> None:
         status: StatusLine = StatusLine(
-            Box(4, 210, 312, 22),
+            Box(0, 224, LCD_WIDTH, 16),
             text="Download failed",
-            color=COLORS["text_error"],
+            color=COLORS["error"],
         )
         surface.fill(COLORS["bg"])
         status.draw(surface)

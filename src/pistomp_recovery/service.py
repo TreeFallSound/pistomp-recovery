@@ -4,6 +4,8 @@ import logging
 import subprocess
 from dataclasses import dataclass
 from enum import Enum, auto
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _pkg_version
 from pathlib import Path
 
 from pistomp_recovery.constants import PISTOMP_SERVICES
@@ -88,6 +90,50 @@ def start_main_app() -> bool:
         text=True,
     )
     return result.returncode == 0
+
+
+def restart_jack() -> bool:
+    """Restart the JACK audio server."""
+    logger.info("Restarting jack")
+    result: subprocess.CompletedProcess[str] = subprocess.run(
+        ["systemctl", "restart", "jack"],
+        capture_output=True,
+        text=True,
+    )
+    return result.returncode == 0
+
+
+def restart_mod() -> bool:
+    """Restart the MOD stack (mod-host, mod-ui, the pi-stomp app)."""
+    logger.info("Restarting mod stack")
+    ok: bool = True
+    for svc in ("mod-host", "mod-ui", "mod-ala-pi-stomp"):
+        result: subprocess.CompletedProcess[str] = subprocess.run(
+            ["systemctl", "restart", svc],
+            capture_output=True,
+            text=True,
+        )
+        ok = ok and result.returncode == 0
+    return ok
+
+
+def recovery_sha() -> str:
+    """Return a 7-char identifier for this recovery build (git sha or version)."""
+    try:
+        out: subprocess.CompletedProcess[str] = subprocess.run(
+            ["git", "rev-parse", "--short=7", "HEAD"],
+            cwd=Path(__file__).resolve().parent,
+            capture_output=True,
+            text=True,
+        )
+        if out.returncode == 0 and out.stdout.strip():
+            return out.stdout.strip()
+    except OSError:
+        pass
+    try:
+        return _pkg_version("pistomp-recovery")[:7]
+    except PackageNotFoundError:
+        return "unknown"
 
 
 def get_crash_log(lines: int = 10) -> str:

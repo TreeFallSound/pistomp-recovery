@@ -1,245 +1,161 @@
 """Integration tests that drive the real RecoveryApp via fake hardware.
 
-Each test asserts behavior (state machine, navigation) and captures snapshots
-of the rendered frame at key transitions to catch visual regressions.
+Each test asserts behavior (navigation, confirm, progress) and captures
+snapshots of the rendered frame at key transitions to catch visual
+regressions. Run with --snapshot-update to regenerate snapshots.
 """
 
 from __future__ import annotations
 
 from typing import Callable
 
-import pytest
-
-from pistomp_recovery.items import Action, Item
+from pistomp_recovery.items import Row, Target
 from pistomp_recovery.ui.screens.menu_screen import MenuScreen
+from pistomp_recovery.ui.widgets.header import ICON_BACK, ICON_EXIT
 from pistomp_recovery.ui.widgets.misc import InputEvent
 from tests.conftest import AppHarness
 
 
-def test_main_menu_no_back_item(
-    recovery_app: AppHarness, snapshot: Callable[..., None]
-) -> None:
-    """Main Menu has no <- Back because it's the root screen."""
-    harness = recovery_app
-    harness.inject()  # ensure a frame is captured
-    snapshot()
-
-    menu = harness._current_menu()
-    assert menu is not None
-    labels = [item[0] for item in menu.items]
-    assert not any("Back" in lbl for lbl in labels)
-
-
-def test_sub_screen_shows_back_item(
-    recovery_app: AppHarness, snapshot: Callable[..., None]
-) -> None:
-    """All sub-screens show a <- Back item."""
-    harness = recovery_app
-
-    harness.app._screen_stack.clear()
-    screen = MenuScreen(
-        harness.surface,
-        title="Pedalboards",
-        items=[
-            Item(
-                name="foo.pedalboard",
-                label="foo.pedalboard",
-                dirty=False,
-                right="factory",
-                actions=[],
-            ),
-        ],
-        back_callback=harness.app._pop_screen,
-    )
+def _push(harness: AppHarness, title: str, rows: list[Row], back: bool) -> MenuScreen:
+    icon = Target(ICON_BACK if back else ICON_EXIT, harness.app._pop_screen)
+    screen = MenuScreen(harness.surface, title, rows, icon)
     harness.app._push_screen(screen)
+    return screen
+
+
+def test_main_menu_renders(
+    recovery_app: AppHarness, snapshot: Callable[..., None]
+) -> None:
+    """The root menu shows the inverted title, exit icon, and top-level rows."""
+    harness = recovery_app
     harness.inject()
     snapshot()
 
-    menu = harness._current_menu()
-    assert menu is not None
-    labels = [item[0] for item in menu.items]
-    assert any("Back" in lbl for lbl in labels)
+    labels = harness.nav_labels()
+    assert labels[0] == ICON_EXIT  # header icon is exit on the root menu
+    assert "JACK" in labels and "MOD" in labels
+    assert "RESET TO CHECKPOINT" in labels
+    assert "REBOOT" in labels and "POWER OFF" in labels
 
 
-def test_navigate_to_detail_and_back(
+def test_submenu_has_back_icon(
     recovery_app: AppHarness, snapshot: Callable[..., None]
 ) -> None:
-    """Click an item to enter DETAIL, then long-press to return to LIST."""
+    """Sub-screens carry a back icon in the header instead of an exit icon."""
     harness = recovery_app
-
     harness.app._screen_stack.clear()
-    screen = MenuScreen(
-        harness.surface,
-        title="Packages",
-        items=[
-            Item(
-                name="jack2-pistomp",
-                label="jack2-pistomp",
-                dirty=True,
-                right="↑1.9.13",
-                actions=[
-                    Action("Update to 1.9.13", lambda: None, confirm="Update?"),
-                    Action("Rollback to stamp", lambda: None, confirm="Rollback?"),
-                ],
-            ),
-        ],
-        back_callback=harness.app._pop_screen,
+    _push(
+        harness,
+        "Pedalboards",
+        [Row((Target("foo.pedalboard", lambda: None, enabled=False),), right="factory")],
+        back=True,
     )
-    harness.app._push_screen(screen)
+    harness.inject()
+    snapshot()
+
+    assert harness.nav_labels()[0] == ICON_BACK
+
+
+def test_disabled_target_skipped(recovery_app: AppHarness) -> None:
+    """Disabled targets render but are not reachable by the encoder."""
+    harness = recovery_app
+    harness.app._screen_stack.clear()
+    _push(
+        harness,
+        "Plugins",
+        [Row((Target("No updates", lambda: None, enabled=False),))],
+        back=True,
+    )
+    harness.inject()
+    # Only the header icon is navigable.
+    assert harness.nav_labels() == [ICON_BACK]
+    assert harness.row_labels() == ["No updates"]
+
+
+def test_confirm_cancel(
+    recovery_app: AppHarness, snapshot: Callable[..., None]
+) -> None:
+    harness = recovery_app
+    called: list[bool] = []
+    harness.app._screen_stack.clear()
+    screen = _push(
+        harness,
+        "Factory Reset",
+        [Row((Target("jackdrc", lambda: called.append(True),
+                     confirm="Reset jackdrc?"),))],
+        back=True,
+    )
     harness.inject()
     snapshot("list")
 
-    # Scroll to and select the item -> DETAIL
-    harness.select("jack2")
-    assert screen._state == "DETAIL"
-    snapshot("detail")
-
-    # Long-press back to LIST
-    harness.long_press()
-    assert screen._state == "LIST"
-    snapshot("back_to_list")
-
-
-def test_confirm_dialog_cancel(
-    recovery_app: AppHarness, snapshot: Callable[..., None]
-) -> None:
-    """Enter DETAIL, select an action with confirm, then cancel."""
-    harness = recovery_app
-
-    harness.app._screen_stack.clear()
-    screen = MenuScreen(
-        harness.surface,
-        title="Packages",
-        items=[
-            Item(
-                name="jack2-pistomp",
-                label="jack2-pistomp",
-                dirty=False,
-                right="",
-                actions=[
-                    Action("Rollback to factory", lambda: None,
-                          confirm="Factory reset?"),
-                ],
-            ),
-        ],
-        back_callback=harness.app._pop_screen,
-    )
-    harness.app._push_screen(screen)
-    harness.inject()
-    snapshot("list")
-
-    harness.select("jack2")
-    assert screen._state == "DETAIL"
-    snapshot("detail")
-
-    # Select the rollback action -> enters CONFIRM
-    harness.select("Rollback to factory")
+    harness.select("jackdrc")
     assert screen._state == "CONFIRM"
     snapshot("confirm")
 
-    # Long-press cancels, returns to DETAIL
-    harness.long_press()
-    assert screen._state == "DETAIL"
+    harness.inject(InputEvent.CLICK)  # No is focused by default -> cancel
+    assert screen._state == "LIST"
+    assert called == []
     snapshot("cancelled")
 
 
-def test_confirm_dialog_confirm(
+def test_confirm_confirm(
     recovery_app: AppHarness, snapshot: Callable[..., None]
 ) -> None:
-    """Enter CONFIRM and actually confirm the action."""
     harness = recovery_app
-    called: bool = False
-
-    def on_confirm() -> None:
-        nonlocal called
-        called = True
-
+    called: list[bool] = []
     harness.app._screen_stack.clear()
-    screen = MenuScreen(
-        harness.surface,
-        title="Packages",
-        items=[
-            Item(
-                name="jack2-pistomp",
-                label="jack2-pistomp",
-                dirty=False,
-                right="",
-                actions=[
-                    Action("Rollback to factory", on_confirm,
-                          confirm="Factory reset?"),
-                ],
-            ),
-        ],
-        back_callback=harness.app._pop_screen,
+    screen = _push(
+        harness,
+        "Factory Reset",
+        [Row((Target("jackdrc", lambda: called.append(True),
+                     confirm="Reset jackdrc?"),))],
+        back=True,
     )
-    harness.app._push_screen(screen)
     harness.inject()
 
-    harness.select("jack2")
-    harness.select("Rollback to factory")
+    harness.select("jackdrc")
     assert screen._state == "CONFIRM"
-    snapshot("confirm")
-
-    # Move to Confirm button and click it
-    harness.inject(InputEvent.RIGHT, InputEvent.CLICK)
-    assert called is True
-    assert screen._state == "DETAIL"
+    harness.inject(InputEvent.RIGHT, InputEvent.CLICK)  # move to Yes, confirm
+    assert called == [True]
+    assert screen._state == "LIST"
     snapshot("confirmed")
 
 
-def test_progress_blocks_input(
+def test_progress_blocks_then_dismisses(
     recovery_app: AppHarness, snapshot: Callable[..., None]
 ) -> None:
-    """During PROGRESS state, input is consumed but does nothing."""
     harness = recovery_app
-
     harness.app._screen_stack.clear()
-    screen = MenuScreen(
-        harness.surface,
-        title="Updates",
-        items=[],
-        back_callback=harness.app._pop_screen,
-    )
-    harness.app._push_screen(screen)
-    screen.set_progress("Downloading...", 0.5, "Downloading 2 packages...")
+    screen = _push(harness, "Updates", [], back=True)
+
+    screen.set_progress("Downloading...", 0.5, "Downloading 2 package(s)...")
     harness.inject()
     snapshot("progress")
-
     assert screen._state == "PROGRESS"
 
-    # Try to navigate — should be blocked, state stays PROGRESS
+    # Input is blocked while in progress.
     harness.inject(InputEvent.RIGHT, InputEvent.CLICK, InputEvent.LONG_CLICK)
     assert screen._state == "PROGRESS"
 
+    # Once marked done, a click dismisses back to the list.
+    screen.set_progress("Update complete", 1.0, "Done.", done=True)
+    harness.redraw()
+    snapshot("done")
+    harness.inject(InputEvent.CLICK)
+    assert screen._state == "LIST"
 
-def test_main_menu_dirty_badge(
-    recovery_app: AppHarness, snapshot: Callable[..., None]
-) -> None:
-    """Main menu shows dirty counts in right column when items are dirty."""
+
+def test_reset_picker_navigation(recovery_app: AppHarness) -> None:
+    """RESET TO CHECKPOINT drills into the shared domain picker."""
     harness = recovery_app
-
-    harness.app._screen_stack.clear()
-    screen = MenuScreen(
-        harness.surface,
-        title="Recovery",
-        items=[
-            Item("resume", "Resume", False, "",
-                 [Action("Resume", lambda: None)]),
-            Item("reset", "Reset...", True, "3 changed",
-                 [Action("Open", lambda: None)]),
-            Item("update", "Update...", False, "2 available",
-                 [Action("Open", lambda: None)]),
-        ],
-        back_callback=None,
-    )
-    harness.app._push_screen(screen)
     harness.inject()
-    snapshot()
+    harness.select("RESET TO CHECKPOINT")
 
-    menu = harness._current_menu()
-    assert menu is not None
-    labels = [item[0] for item in menu.items]
-    assert "Reset... *" in labels  # dirty marker appended by MenuScreen
-    rights = [item[2] for item in menu.items]
-    assert "3 changed" in rights
-    assert "2 available" in rights
+    labels = harness.row_labels()
+    assert labels == ["Pedalboards", "Plugins", "Config", "System"]
+
+    # Plugins is selectable but leads to an empty list.
+    harness.select("Plugins")
+    assert harness.row_labels() == ["No updates"] or harness.row_labels() == [
+        "Nothing to reset"
+    ]

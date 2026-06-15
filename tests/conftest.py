@@ -1,4 +1,5 @@
-"""
+"""Test fixtures using dependency-injected fake backends.
+
 Shims for Raspberry Pi / CircuitPython hardware modules unavailable on macOS/Windows.
 Injected into sys.modules at import time so application code can be imported in tests.
 """
@@ -6,20 +7,25 @@ Injected into sys.modules at import time so application code can be imported in 
 import os
 import sys
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Generator
 from unittest.mock import MagicMock
 
 # Initialize pygame headlessly before any uilib/test imports.
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 
-from pistomp_recovery.pygame_init import init as _pg_init
-from pistomp_recovery.ui.widgets.misc import InputEvent
+from pistomp_recovery.pygame_init import init as _pg_init  # noqa: E402
+from pistomp_recovery.ui.widgets.misc import InputEvent  # noqa: E402
 
 _pg_init()
 
-import pygame  # noqa: E402
 import pytest  # noqa: E402
 from PIL import Image  # noqa: E402
+
+from pistomp_recovery.app import RecoveryAppCore  # noqa: E402
+from pistomp_recovery.backends import AppBackends, DataBackend  # noqa: E402
+from pistomp_recovery.items import Action, Item, PackageUpdate  # noqa: E402
+from pistomp_recovery.service import BootMode, CrashInfo  # noqa: E402
+from pistomp_recovery.ui.screens.menu_screen import MenuScreen as MS  # noqa: E402
 
 PROJECT_ROOT = Path(__file__).parent.parent
 _TESTS_DIR = Path(__file__).parent
@@ -54,18 +60,22 @@ for _mod in _PI_MODULES:
 # FakeLcd — captures rendered frames without touching hardware
 # ---------------------------------------------------------------------------
 
+import pygame  # noqa: E402
 
-class FakeLcd:
-    """LCD stub that captures every frame pushed via update() into a list.
 
-    Converts pygame Surfaces to PIL Images for snapshot comparison.
-    """
+class FakeDisplayBackend:
+    """Display stub that captures every frame pushed via update() into a list."""
 
     def __init__(self, width: int = 320, height: int = 240) -> None:
         self.width = width
         self.height = height
         self.frames: list[Image.Image] = []
+        self._surface: pygame.Surface = pygame.Surface((width, height))
         self._has_splash = False
+
+    @property
+    def surface(self) -> pygame.Surface:
+        return self._surface
 
     @property
     def has_system_splash(self) -> bool:
@@ -79,13 +89,13 @@ class FakeLcd:
         img = Image.frombytes("RGB", (self.width, self.height), rgb)
         self.frames.append(img)
 
-    def clear(self) -> None:
-        img = Image.new("RGB", (self.width, self.height), (0, 0, 0))
-        self.frames.append(img)
+
+# Backwards-compatible alias used by widget tests.
+FakeLcd = FakeDisplayBackend
 
 
 # ---------------------------------------------------------------------------
-# FakeEncoder + FakeInputManager — injectable input events for tests
+# FakeEncoder + FakeInputBackend — injectable input events for tests
 # ---------------------------------------------------------------------------
 
 
@@ -110,8 +120,8 @@ class FakeEncoder:
         self._events.append(direction)
 
 
-class FakeInputManager:
-    """InputManager stub backed by FakeEncoder, with click injection."""
+class FakeInputBackend:
+    """Input backend backed by FakeEncoder, with click injection."""
 
     def __init__(self, encoder: FakeEncoder) -> None:
         self._encoder = encoder
@@ -140,30 +150,144 @@ class FakeInputManager:
 
 
 # ---------------------------------------------------------------------------
-# RecoveryApp test harness — drives real app with fake hardware
+# FakeDataBackend — configurable per-domain items and package installs
+# ---------------------------------------------------------------------------
+
+
+class FakeDataBackend(DataBackend):
+    """Data backend that returns configured items and records installs."""
+
+    def __init__(self) -> None:
+        self._items: dict[str, dict[str, list[Item]]] = {}
+        self._updates: dict[str, list[PackageUpdate]] = {}
+        self._installed: list[list[str]] = []
+        self._install_success: bool = True
+        self._install_progress: list[tuple[str, float, str, bool]] = []
+
+    def set_items(self, mode: str, domain: str, items: list[Item]) -> None:
+        self._items.setdefault(mode, {})[domain] = items
+
+    def set_updates(self, domain: str, updates: list[PackageUpdate]) -> None:
+        self._updates[domain] = updates
+
+    def domains(self) -> tuple[tuple[str, str], ...]:
+        return (
+            ("pedalboards", "Pedalboards"),
+            ("plugins", "Plugins"),
+            ("config", "Config"),
+            ("system", "System"),
+        )
+
+    def domain_items(self, mode: str, domain: str) -> list[Item]:
+        if mode == "updates":
+            return [
+                Item(
+                    u.name,
+                    f"{u.name} {u.old_version}",
+                    False,
+                    f"↑{u.new_version}",
+                    [Action("Update", lambda u=u: None)],
+                )
+                for u in self._updates.get(domain, [])
+            ]
+        return list(self._items.get(mode, {}).get(domain, []))
+
+    def available_updates(self, domain: str) -> list[PackageUpdate]:
+        return list(self._updates.get(domain, []))
+
+    def install_packages(
+        self, packages: list[str], progress: Callable[[str, float, str, bool], None]
+    ) -> bool:
+        self._installed.append(list(packages))
+        for entry in self._install_progress:
+            progress(*entry)
+        # Remove installed packages from update lists so the refresh hides them,
+        # mirroring real backend behavior.
+        for domain, updates in self._updates.items():
+            self._updates[domain] = [
+                u for u in updates if u.name not in packages
+            ]
+        return self._install_success
+
+
+# ---------------------------------------------------------------------------
+# FakeServiceBackend — stub lifecycle and crash info
+# ---------------------------------------------------------------------------
+
+
+class FakeServiceBackend:
+    """Service backend that records calls instead of touching systemd."""
+
+    def __init__(
+        self,
+        boot_mode: BootMode = BootMode.USER_RECOVERY,
+        sha: str = "abc1234",
+    ) -> None:
+        self.boot_mode = boot_mode
+        self.sha = sha
+        self.calls: list[str] = []
+
+    def stop_main_app(self) -> bool:
+        self.calls.append("stop_main_app")
+        return True
+
+    def start_main_app(self) -> bool:
+        self.calls.append("start_main_app")
+        return True
+
+    def restart_jack(self) -> bool:
+        self.calls.append("restart_jack")
+        return True
+
+    def restart_mod(self) -> bool:
+        self.calls.append("restart_mod")
+        return True
+
+    def reboot(self) -> None:
+        self.calls.append("reboot")
+
+    def power_off(self) -> None:
+        self.calls.append("power_off")
+
+    def recovery_sha(self) -> str:
+        return self.sha
+
+    def crash_info(self) -> CrashInfo | None:
+        if self.boot_mode != BootMode.CRASH_RECOVERY:
+            return None
+        return CrashInfo(
+            boot_mode=BootMode.CRASH_RECOVERY,
+            failed_service="mod-host",
+            crash_log="boom",
+            service_states={},
+        )
+
+
+# ---------------------------------------------------------------------------
+# RecoveryApp test harness — drives the core with fake backends
 # ---------------------------------------------------------------------------
 
 
 class AppHarness:
-    """Wraps a RecoveryApp with event injection and frame capture."""
+    """Wraps a RecoveryAppCore with event injection and frame capture."""
 
-    def __init__(self, app: "RecoveryApp", fake_lcd: FakeLcd) -> None:
+    def __init__(self, app: RecoveryAppCore, display: FakeDisplayBackend) -> None:
         self.app = app
-        self.lcd = fake_lcd
+        self.display = display
 
     def inject(self, *events: InputEvent) -> None:
         """Feed events into the app and redraw if dirty."""
         for ev in events:
-            self.app._handle_event(ev)
+            self.app.handle_event(ev)
         if self.app._dirty:
-            self.app._draw_current_screen()
-            self.app._display.update(self.app._display.surface)
+            self.app.draw_current_screen()
+            self.app._backends.display.update(self.app.surface)
             self.app._dirty = False
 
     def redraw(self) -> None:
         """Force a draw + frame capture (e.g. after a programmatic state change)."""
-        self.app._draw_current_screen()
-        self.app._display.update(self.app._display.surface)
+        self.app.draw_current_screen()
+        self.app._backends.display.update(self.app.surface)
         self.app._dirty = False
 
     def scroll_to(self, label: str) -> None:
@@ -200,46 +324,68 @@ class AppHarness:
             return []
         return [t.label for row in menu._rows for t in row.targets]
 
-    def _menu(self) -> "MenuScreen | None":
-        screen = self.app._current_screen()
-        from pistomp_recovery.ui.screens.menu_screen import MenuScreen
-        if isinstance(screen, MenuScreen):
+    def _menu(self) -> "MS | None":
+        screen = self.app.current_screen()
+        if isinstance(screen, MS):
             return screen
         return None
 
-    @property
-    def current_screen(self) -> "Screen | None":
-        return self.app._current_screen()
 
-    @property
-    def surface(self) -> pygame.Surface:
-        return self.app._display.surface
+@pytest.fixture
+def fake_encoder() -> FakeEncoder:
+    return FakeEncoder()
 
 
 @pytest.fixture
-def recovery_app(fake_encoder: FakeEncoder, fake_input: FakeInputManager, fake_lcd: FakeLcd, monkeypatch: pytest.MonkeyPatch) -> "Generator[AppHarness, None, None]":
-    """Construct a RecoveryApp with fake hardware, initialized and ready to drive."""
-    from pistomp_recovery.__main__ import RecoveryApp
-    from pistomp_recovery.service import BootMode
+def fake_input(fake_encoder: FakeEncoder) -> FakeInputBackend:
+    return FakeInputBackend(fake_encoder)
 
-    # Prevent subprocess calls during init
-    monkeypatch.setattr("pistomp_recovery.__main__.stop_main_app", lambda: True)
-    monkeypatch.setattr("pistomp_recovery.__main__.start_main_app", lambda: True)
-    # Prevent package/git calls from failing in tests
-    monkeypatch.setattr("pistomp_recovery.__main__.list_pedalboard_items", lambda: [])
-    monkeypatch.setattr("pistomp_recovery.__main__.get_available_updates", lambda: [])
-    monkeypatch.setattr("pistomp_recovery.__main__.list_config_items", lambda: [])
-    monkeypatch.setattr("pistomp_recovery.__main__.list_system_items", lambda: [])
-    monkeypatch.setattr("pistomp_recovery.__main__.recovery_sha", lambda: "abc1234")
 
-    app = RecoveryApp(BootMode.USER_RECOVERY)
-    # Swap in fakes before init
-    app._encoder = fake_encoder
-    app._input = fake_input
-    app._display._lcd = fake_lcd  # type: ignore[union-attr]
+@pytest.fixture
+def _fake_display() -> FakeDisplayBackend:
+    return FakeDisplayBackend()
+
+
+@pytest.fixture
+def fake_display(_fake_display: FakeDisplayBackend) -> FakeDisplayBackend:
+    return _fake_display
+
+
+# Backwards-compatible alias for widget tests that import `fake_lcd`.
+@pytest.fixture
+def fake_lcd(_fake_display: FakeDisplayBackend) -> FakeDisplayBackend:
+    return _fake_display
+
+
+@pytest.fixture
+def fake_data() -> FakeDataBackend:
+    return FakeDataBackend()
+
+
+@pytest.fixture
+def fake_services() -> FakeServiceBackend:
+    return FakeServiceBackend()
+
+
+@pytest.fixture
+def recovery_app(
+    fake_display: FakeDisplayBackend,
+    fake_input: FakeInputBackend,
+    fake_data: FakeDataBackend,
+    fake_services: FakeServiceBackend,
+) -> Generator[AppHarness, None, None]:
+    """Construct a RecoveryAppCore with fake backends, initialized and ready."""
+    app = RecoveryAppCore(
+        AppBackends(
+            display=fake_display,
+            input=fake_input,
+            data=fake_data,
+            services=fake_services,
+        ),
+        fake_services.boot_mode,
+    )
     app.init()
-
-    harness = AppHarness(app, fake_lcd)
+    harness = AppHarness(app, fake_display)
     yield harness
     app.cleanup()
 
@@ -283,7 +429,9 @@ def assert_snapshot(
 
 @pytest.fixture
 def snapshot(
-    request: pytest.FixtureRequest, fake_lcd: FakeLcd, snapshot_update: bool
+    request: pytest.FixtureRequest,
+    fake_display: FakeDisplayBackend,
+    snapshot_update: bool,
 ) -> Callable[..., None]:
     """Assert the latest LCD frame matches a stored PNG snapshot.
 
@@ -301,24 +449,9 @@ def snapshot(
             suffix = str(counter[0])
             counter[0] += 1
         assert_snapshot(
-            fake_lcd.frames[-1],
+            fake_display.frames[-1],
             f"{module}/{test}/{suffix}",
             update=snapshot_update,
         )
 
     return _assert
-
-
-@pytest.fixture
-def fake_lcd() -> FakeLcd:
-    return FakeLcd()
-
-
-@pytest.fixture
-def fake_encoder() -> FakeEncoder:
-    return FakeEncoder()
-
-
-@pytest.fixture
-def fake_input(fake_encoder: FakeEncoder) -> FakeInputManager:
-    return FakeInputManager(fake_encoder)

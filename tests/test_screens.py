@@ -1,4 +1,4 @@
-"""Integration tests that drive the real RecoveryApp via fake hardware.
+"""Integration tests that drive the recovery app via fake backends.
 
 Each test asserts behavior (navigation, confirm, progress) and captures
 snapshots of the rendered frame at key transitions to catch visual
@@ -9,23 +9,74 @@ from __future__ import annotations
 
 from typing import Callable
 
-from pistomp_recovery.items import Row, Target
+from pistomp_recovery.app import RecoveryAppCore
+from pistomp_recovery.backends import AppBackends
+from pistomp_recovery.items import Action, Item, PackageUpdate, Row, Target
+from pistomp_recovery.service import BootMode
 from pistomp_recovery.ui.screens.menu_screen import MenuScreen
 from pistomp_recovery.ui.widgets.header import ICON_BACK, ICON_EXIT
 from pistomp_recovery.ui.widgets.misc import InputEvent
-from tests.conftest import AppHarness
+from tests.conftest import (
+    AppHarness,
+    FakeDataBackend,
+    FakeDisplayBackend,
+    FakeInputBackend,
+    FakeServiceBackend,
+)
+
+
+def test_badge_excludes_update_all() -> None:
+    assert RecoveryAppCore.badge("updates", 3, all_item=True) == "2 available"
+    assert RecoveryAppCore.badge("updates", 2, all_item=False) == "2 available"
+    assert RecoveryAppCore.badge("updates", 1, all_item=True) == ""
+    assert RecoveryAppCore.badge("updates", 0, all_item=False) == ""
+    assert RecoveryAppCore.badge("checkpoint", 3, all_item=True) == "3 changed"
+
+
+def test_domain_screen_refreshes_after_successful_action(
+    recovery_app: AppHarness,
+    fake_data: FakeDataBackend,
+) -> None:
+    """After a successful action the current domain list is rebuilt from fresh data."""
+    harness = recovery_app
+    # Keep the main menu on the stack so pop returns somewhere sensible.
+    harness.app._screen_stack[:] = [harness.app._screen_stack[0]]
+
+    first = PackageUpdate("a", "0.1", "0.2")
+    fake_data.set_updates("system", [first])
+    fake_data._install_progress = [
+        ("Update complete", 1.0, "Done.", True),
+    ]
+    harness.app._show_domain("updates", "system")
+    harness.inject()
+    assert harness.row_labels() == ["a 0.1"]
+
+    # Click the update item, confirm the dialog, then dismiss the done screen.
+    harness.select("a 0.1")
+    harness.inject(InputEvent.RIGHT, InputEvent.CLICK, InputEvent.CLICK)
+
+    # Dismissing the done screen should re-query the domain. Because the
+    # domain is now empty, the app pops back to the menu below it.
+    assert fake_data._installed == [["a"]]  # type: ignore[attr-defined]
+    assert harness.row_labels() == [
+        "Jack",
+        "MOD",
+        "Reset to Checkpoint",
+        "Factory Reset",
+        "Updates",
+        "Reboot",
+        "Power Off",
+    ]
 
 
 def _push(harness: AppHarness, title: str, rows: list[Row], back: bool) -> MenuScreen:
-    icon = Target(ICON_BACK if back else ICON_EXIT, harness.app._pop_screen)
-    screen = MenuScreen(harness.surface, title, rows, icon)
-    harness.app._push_screen(screen)
+    icon = Target(ICON_BACK if back else ICON_EXIT, harness.app.pop_screen)
+    screen = MenuScreen(harness.app.surface, title, rows, icon)
+    harness.app.push_screen(screen)
     return screen
 
 
-def test_main_menu_renders(
-    recovery_app: AppHarness, snapshot: Callable[..., None]
-) -> None:
+def test_main_menu_renders(recovery_app: AppHarness, snapshot: Callable[..., None]) -> None:
     """The root menu shows the inverted title, exit icon, and top-level rows."""
     harness = recovery_app
     harness.inject()
@@ -33,14 +84,12 @@ def test_main_menu_renders(
 
     labels = harness.nav_labels()
     assert labels[0] == ICON_EXIT  # header icon is exit on the root menu
-    assert "JACK" in labels and "MOD" in labels
-    assert "RESET TO CHECKPOINT" in labels
-    assert "REBOOT" in labels and "POWER OFF" in labels
+    assert "Jack" in labels and "MOD" in labels
+    assert "Reset to Checkpoint" in labels
+    assert "Reboot" in labels and "Power Off" in labels
 
 
-def test_submenu_has_back_icon(
-    recovery_app: AppHarness, snapshot: Callable[..., None]
-) -> None:
+def test_submenu_has_back_icon(recovery_app: AppHarness, snapshot: Callable[..., None]) -> None:
     """Sub-screens carry a back icon in the header instead of an exit icon."""
     harness = recovery_app
     harness.app._screen_stack.clear()
@@ -72,17 +121,14 @@ def test_disabled_target_skipped(recovery_app: AppHarness) -> None:
     assert harness.row_labels() == ["No updates"]
 
 
-def test_confirm_cancel(
-    recovery_app: AppHarness, snapshot: Callable[..., None]
-) -> None:
+def test_confirm_cancel(recovery_app: AppHarness, snapshot: Callable[..., None]) -> None:
     harness = recovery_app
     called: list[bool] = []
     harness.app._screen_stack.clear()
     screen = _push(
         harness,
         "Factory Reset",
-        [Row((Target("jackdrc", lambda: called.append(True),
-                     confirm="Reset jackdrc?"),))],
+        [Row((Target("jackdrc", lambda: called.append(True), confirm="Reset jackdrc?"),))],
         back=True,
     )
     harness.inject()
@@ -98,17 +144,14 @@ def test_confirm_cancel(
     snapshot("cancelled")
 
 
-def test_confirm_confirm(
-    recovery_app: AppHarness, snapshot: Callable[..., None]
-) -> None:
+def test_confirm_confirm(recovery_app: AppHarness, snapshot: Callable[..., None]) -> None:
     harness = recovery_app
     called: list[bool] = []
     harness.app._screen_stack.clear()
     screen = _push(
         harness,
         "Factory Reset",
-        [Row((Target("jackdrc", lambda: called.append(True),
-                     confirm="Reset jackdrc?"),))],
+        [Row((Target("jackdrc", lambda: called.append(True), confirm="Reset jackdrc?"),))],
         back=True,
     )
     harness.inject()
@@ -145,17 +188,162 @@ def test_progress_blocks_then_dismisses(
     assert screen._state == "LIST"
 
 
+def test_update_picker_excludes_all_from_count(
+    recovery_app: AppHarness, snapshot: Callable[..., None]
+) -> None:
+    """The Updates picker badge counts real updates, not the synthetic Update All."""
+    harness = recovery_app
+    harness.app._screen_stack.clear()
+    items = [
+        Item("a", "a 0.1", False, "↑0.2", [Action("Update", lambda: None)]),
+        Item("b", "b 0.3", False, "↑0.4", [Action("Update", lambda: None)]),
+        Item("all", "Update All", False, "", [Action("Update All", lambda: None)]),
+    ]
+    count = len(items)
+    has_all = items[-1].name == "all"
+    badge = RecoveryAppCore.badge("updates", count, all_item=has_all)
+    _push(
+        harness,
+        "Updates",
+        [Row((Target("System", lambda: None),), right=badge)],
+        back=True,
+    )
+    harness.inject()
+    snapshot("picker")
+
+    # Two real updates plus Update All is still reported as 2 available.
+    menu = harness._menu()
+    assert menu is not None
+    assert menu._rows[0].right == "2 available"
+
+    # Domain detail rows still render all items, including Update All.
+    _push(
+        harness,
+        "System",
+        [Row((Target(it.label, lambda: None),), right=it.right) for it in items],
+        back=True,
+    )
+    harness.inject()
+    snapshot("domain_list")
+    assert harness.row_labels() == ["a 0.1", "b 0.3", "Update All"]
+
+
+def test_update_items_are_selectable_with_empty_actions(
+    recovery_app: AppHarness,
+) -> None:
+    """Update items with no actions must still be selectable (not disabled)."""
+    harness = recovery_app
+    harness.app._screen_stack.clear()
+    fake_data = harness.app._backends.data
+    assert isinstance(fake_data, FakeDataBackend)
+    fake_data.set_updates(
+        "system",
+        [PackageUpdate("a", "0.1", "0.2"), PackageUpdate("b", "0.3", "0.4")],
+    )
+    harness.app._show_domain("updates", "system")
+    harness.inject()
+
+    menu = harness._menu()
+    assert menu is not None
+    assert harness.row_labels() == ["a 0.1", "b 0.3"]
+    # All update items should be navigable (enabled) even with empty actions.
+    assert all(target.enabled for row in menu._rows for target in row.targets)
+
+
+def test_picker_badge_refreshes_after_domain_action(
+    recovery_app: AppHarness,
+) -> None:
+    """After a 3rd-level domain action the 2nd-level picker badges update."""
+    harness = recovery_app
+    harness.inject()
+
+    # Set up one dirty pedalboard so the picker shows a badge.
+    fake_data = harness.app._backends.data
+    assert isinstance(fake_data, FakeDataBackend)
+
+    def clear_pedalboards() -> None:
+        fake_data.set_items("checkpoint", "pedalboards", [])
+
+    dirty = Item(
+        "dirty.pedalboard",
+        "dirty.pedalboard",
+        True,
+        "2d ago",
+        [Action("Rollback to stamp", clear_pedalboards)],
+    )
+    fake_data.set_items("checkpoint", "pedalboards", [dirty])
+
+    harness.select("Reset to Checkpoint")
+    picker = harness._menu()
+    assert picker is not None
+    assert picker._rows[0].right == "1 changed"
+
+    harness.select("Pedalboards")
+    harness.select("dirty.pedalboard")
+
+    # The wrapped action cleared the domain and the domain was popped; the
+    # picker badge should now reflect the new (empty) state.
+    assert picker._rows[0].right == ""
+
+
 def test_reset_picker_navigation(recovery_app: AppHarness) -> None:
     """RESET TO CHECKPOINT drills into the shared domain picker."""
     harness = recovery_app
     harness.inject()
-    harness.select("RESET TO CHECKPOINT")
+    harness.select("Reset to Checkpoint")
 
     labels = harness.row_labels()
     assert labels == ["Pedalboards", "Plugins", "Config", "System"]
 
     # Plugins is selectable but leads to an empty list.
     harness.select("Plugins")
-    assert harness.row_labels() == ["No updates"] or harness.row_labels() == [
-        "Nothing to reset"
-    ]
+    assert harness.row_labels() == ["No updates"] or harness.row_labels() == ["Nothing to reset"]
+
+
+def test_crash_recovery_boot(
+    fake_display: FakeDisplayBackend,
+    fake_input: FakeInputBackend,
+    fake_data: FakeDataBackend,
+) -> None:
+    """Booting in crash mode shows the crash screen."""
+    services = FakeServiceBackend(boot_mode=BootMode.CRASH_RECOVERY)
+    app = RecoveryAppCore(
+        AppBackends(
+            display=fake_display,
+            input=fake_input,
+            data=fake_data,
+            services=services,
+        ),
+        BootMode.CRASH_RECOVERY,
+    )
+    app.init()
+    screen = app.current_screen()
+    from pistomp_recovery.ui.screens.crash import CrashScreen
+
+    assert isinstance(screen, CrashScreen)
+    app.cleanup()
+
+
+def test_resume_starts_main_app(
+    fake_display: FakeDisplayBackend,
+    fake_input: FakeInputBackend,
+    fake_data: FakeDataBackend,
+) -> None:
+    """Selecting exit on the root menu starts the main app and stops the loop."""
+    services = FakeServiceBackend()
+    app = RecoveryAppCore(
+        AppBackends(
+            display=fake_display,
+            input=fake_input,
+            data=fake_data,
+            services=services,
+        ),
+        BootMode.USER_RECOVERY,
+    )
+    app.init()
+    # Navigate to the exit icon (header target) and select it.
+    app.handle_event(InputEvent.LEFT)
+    app.handle_event(InputEvent.CLICK)
+    assert "start_main_app" in services.calls
+    assert not app.running
+    app.cleanup()

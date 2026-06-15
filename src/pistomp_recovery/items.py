@@ -49,3 +49,12 @@ class Row:
     targets: tuple[Target, ...] = field(default_factory=tuple)
     prefix: str = ""
     right: str = ""
+
+
+@dataclass
+class PackageUpdate:
+    """A pending package update returned by a data backend."""
+
+    name: str
+    old_version: str
+    new_version: str

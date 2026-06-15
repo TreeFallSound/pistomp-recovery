@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Callable
+
 import pygame
 
 from pistomp_recovery.constants import LCD_HEIGHT, LCD_WIDTH
@@ -34,6 +36,10 @@ class MenuScreen(Screen):
         title: str,
         rows: list[Row],
         header_icon: Target,
+        *,
+        mode: str = "",
+        domain: str = "",
+        reload_callback: Callable[[], None] | None = None,
     ) -> None:
         super().__init__(surface)
         self._title: str = title
@@ -46,6 +52,9 @@ class MenuScreen(Screen):
         self._status_text: str = ""
         self._progress_title: str = ""
         self._progress_done: bool = False
+        self._mode: str = mode
+        self._domain: str = domain
+        self._reload_callback: Callable[[], None] | None = reload_callback
         cw, ch = cell_size()
         self._progress_bar: ProgressBar = ProgressBar(
             Box(cw * 2, LCD_HEIGHT // 2, LCD_WIDTH - cw * 4, ch)
@@ -64,6 +73,19 @@ class MenuScreen(Screen):
         self._scroll = 0
         if self._state == "LIST":
             self._build_nav()
+
+    @property
+    def mode(self) -> str:
+        return self._mode
+
+    @property
+    def domain(self) -> str:
+        return self._domain
+
+    def reload(self) -> None:
+        """Re-run the caller's reload callback to refresh this screen's rows."""
+        if self._reload_callback is not None:
+            self._reload_callback()
 
     def _build_nav(self) -> None:
         nav: list[NavPos] = [_HEADER]
@@ -129,6 +151,7 @@ class MenuScreen(Screen):
     def handle_event(self, event: InputEvent) -> bool:
         if self._state == "PROGRESS":
             if self._progress_done and event == InputEvent.CLICK:
+                self.reload()
                 self.clear_progress()
             return True
         if self._state == "CONFIRM":

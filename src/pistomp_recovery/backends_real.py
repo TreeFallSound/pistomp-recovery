@@ -1,0 +1,236 @@
+"""Backends that talk to the real pi-Stomp device.
+
+These wrap SPI/GPIO, pacman, git, and systemd.  The recovery UI core is
+oblivious to the implementation; it just receives `Item` lists and calls
+progress callbacks.
+"""
+
+from __future__ import annotations
+
+import logging
+import threading
+from typing import Callable
+
+import pygame
+
+from pistomp_recovery.backends import (
+    AppBackends,
+    DataBackend,
+    DisplayBackend,
+    InputBackend,
+    ProgressCallback,
+    ServiceBackend,
+)
+from pistomp_recovery.config import list_config_items
+from pistomp_recovery.constants import domain_for_package
+from pistomp_recovery.hardware.encoder import EncoderInput
+from pistomp_recovery.hardware.lcd import LcdSpi
+from pistomp_recovery.items import Item, PackageUpdate
+from pistomp_recovery.packages import get_available_updates
+from pistomp_recovery.packages import installer as package_installer
+from pistomp_recovery.packages.packages import stamp_packages
+from pistomp_recovery.pedalboards import list_pedalboard_items
+from pistomp_recovery.service import (
+    CrashInfo,
+    diagnose_crash,
+    recovery_sha,
+    restart_jack,
+    restart_mod,
+    start_main_app,
+    stop_main_app,
+)
+from pistomp_recovery.system import list_system_items
+from pistomp_recovery.ui.display import Display
+from pistomp_recovery.ui.input import InputManager
+from pistomp_recovery.ui.widgets.misc import InputEvent
+
+logger = logging.getLogger(__name__)
+
+
+class LcdDisplayBackend(DisplayBackend):
+    """SPI LCD via pygame surface bridge."""
+
+    def __init__(self) -> None:
+        self._display: Display = Display(LcdSpi())
+
+    @property
+    def surface(self) -> pygame.Surface:
+        return self._display.surface
+
+    def init(self) -> None:
+        self._display.init()
+
+    def update(self, surface: pygame.Surface) -> None:
+        self._display.update(surface)
+
+
+class GpioInputBackend(InputBackend):
+    """Rotary encoder + switch on real GPIO."""
+
+    def __init__(self) -> None:
+        self._encoder: EncoderInput = EncoderInput()
+        self._input: InputManager = InputManager(self._encoder)
+
+    def start(self) -> None:
+        self._encoder.start()
+        self._input.start()
+
+    def stop(self) -> None:
+        self._encoder.stop()
+        self._input.stop()
+
+    def poll(self) -> list[InputEvent]:
+        return self._input.poll()
+
+
+class RealDataBackend(DataBackend):
+    """Pedalboards, config, system files, and packages backed by git/pacman."""
+
+    def domains(self) -> tuple[tuple[str, str], ...]:
+        return (
+            ("pedalboards", "Pedalboards"),
+            ("plugins", "Plugins"),
+            ("config", "Config"),
+            ("system", "System"),
+        )
+
+    def domain_items(self, mode: str, domain: str) -> list[Item]:
+        if domain == "plugins":
+            return []
+        if mode == "updates":
+            # The core synthesizes update actions; backend just lists candidates.
+            return self._update_items(domain)
+
+        loaders: dict[str, Callable[[], list[Item]]] = {
+            "pedalboards": list_pedalboard_items,
+            "config": list_config_items,
+            "system": list_system_items,
+        }
+        loader = loaders.get(domain)
+        if loader is None:
+            return []
+        try:
+            raw: list[Item] = loader()
+        except Exception:
+            logger.debug("Could not list %s items", domain, exc_info=True)
+            return []
+
+        wanted: str = (
+            "Rollback to stamp" if mode == "checkpoint" else "Rollback to factory"
+        )
+        result: list[Item] = []
+        for it in raw:
+            actions = [a for a in it.actions if a.label == wanted]
+            if not actions:
+                continue
+            if mode == "checkpoint" and not it.dirty:
+                continue
+            result.append(Item(it.name, it.label, it.dirty, it.right, actions))
+        return result
+
+    def available_updates(self, domain: str) -> list[PackageUpdate]:
+        try:
+            raw: list[tuple[str, str, str]] = get_available_updates()
+        except Exception:
+            logger.debug("Could not query updates", exc_info=True)
+            return []
+        return [
+            PackageUpdate(name=u[0], old_version=u[1], new_version=u[2])
+            for u in raw
+            if domain_for_package(u[0]) == domain
+        ]
+
+    def _update_items(self, domain: str) -> list[Item]:
+        scoped = self.available_updates(domain)
+        return [
+            Item(
+                name=u.name,
+                label=f"{u.name} {u.old_version}",
+                dirty=False,
+                right=f"↑{u.new_version}",
+                actions=[],
+            )
+            for u in scoped
+        ]
+
+    def install_packages(
+        self,
+        packages: list[str],
+        progress: ProgressCallback,
+    ) -> bool:
+        """Run download/install/stamp on a worker thread and report progress."""
+        result: list[bool] = []
+
+        def _run() -> None:
+            progress("Downloading...", 0.0,
+                     f"Downloading {len(packages)} package(s)...", False)
+            if not package_installer.download_packages(packages):
+                progress("Download failed", 0.0,
+                         "Download failed. Click to continue.", True)
+                result.append(False)
+                return
+
+            progress("Installing...", 0.5,
+                     f"Installing {len(packages)} package(s)...", False)
+            if not package_installer.install_packages(packages):
+                progress("Rolling back...", 0.5,
+                         "Install failed, rolling back...", False)
+                package_installer.install_from_cache(packages)
+                progress("Install failed", 0.0,
+                         "Install failed. Click to continue.", True)
+                result.append(False)
+                return
+
+            progress("Saving snapshot...", 0.9, "Saving snapshot...", False)
+            try:
+                stamp_packages()
+            except Exception:
+                logger.exception("Stamp after update failed")
+
+            progress("Update complete", 1.0,
+                     "Done. Exit (►) to restart pi-Stomp.", True)
+            result.append(True)
+
+        threading.Thread(target=_run, daemon=True).start()
+        return True
+
+
+class RealServiceBackend(ServiceBackend):
+    """systemd lifecycle and crash diagnostics."""
+
+    def stop_main_app(self) -> bool:
+        return stop_main_app()
+
+    def start_main_app(self) -> bool:
+        return start_main_app()
+
+    def restart_jack(self) -> bool:
+        return restart_jack()
+
+    def restart_mod(self) -> bool:
+        return restart_mod()
+
+    def reboot(self) -> None:
+        import subprocess
+
+        subprocess.run(["systemctl", "reboot"], check=False)
+
+    def power_off(self) -> None:
+        import subprocess
+
+        subprocess.run(["systemctl", "poweroff"], check=False)
+
+    def recovery_sha(self) -> str:
+        return recovery_sha()
+
+    def crash_info(self) -> CrashInfo | None:
+        return diagnose_crash()
+
+
+def make_real_backends() -> AppBackends:
+    return AppBackends(
+        display=LcdDisplayBackend(),
+        input=GpioInputBackend(),
+        data=RealDataBackend(),
+        services=RealServiceBackend(),
+    )

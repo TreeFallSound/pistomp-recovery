@@ -135,9 +135,9 @@ def list_package_items() -> list[Item]:
         if avail:
             actions.append(
                 Action(
-                    f"Update to {avail}",
+                    "Update",
                     lambda p=pkg: _install_single(p),
-                    confirm=f"Update {pkg}\nto {avail}?",
+                    confirm=f"Update {pkg}?",
                 )
             )
         if is_dirty and stamp != "not-installed":

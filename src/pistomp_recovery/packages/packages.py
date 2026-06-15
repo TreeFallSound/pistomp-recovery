@@ -72,6 +72,9 @@ def stamp_packages() -> None:
 
 
 def get_available_updates() -> list[tuple[str, str, str]]:
+    """Sync databases and return (name, old_ver, new_ver) for each update."""
+    # Refresh DBs so we see updates from the [pistomp] GitHub repo
+    subprocess.run(["pacman", "-Sy"], capture_output=True, check=False)
     result: subprocess.CompletedProcess[str] = subprocess.run(
         ["pacman", "-Qu", *PISTOMP_PACKAGES],
         capture_output=True,

@@ -36,41 +36,57 @@ def init_system() -> None:
     git_util.git("checkout", git_util.DEVICE_BRANCH, cwd=SYSTEM_REPO, check=False)
 
 
-def list_system_items() -> list[Item]:
-    """Return Item list for system files. Only dirty-check + rollback actions."""
-    init_system()
-    is_dirty: bool = bool(
+def _repo_is_dirty() -> bool:
+    return bool(
         git_util.git("status", "--porcelain", cwd=SYSTEM_REPO, check=False).strip()
     )
-    stamp_tag: str | None = git_util.last_stamp(SYSTEM_REPO, "system")
-    stamp_time: datetime | None = _parse_stamp_time(stamp_tag) if stamp_tag else None
 
-    actions: list[Action] = []
-    if stamp_time:
+
+def _repo_stamp_time() -> datetime | None:
+    stamp_tag: str | None = git_util.last_stamp(SYSTEM_REPO, "system")
+    return _parse_stamp_time(stamp_tag) if stamp_tag else None
+
+
+def list_system_items() -> list[Item]:
+    """Return one Item per system file."""
+    init_system()
+    repo_dirty: bool = _repo_is_dirty()
+    stamp_time: datetime | None = _repo_stamp_time()
+
+    items: list[Item] = []
+    for filepath in SYSTEM_FILES:
+        src: Path = Path(filepath)
+        if not src.exists():
+            continue
+
+        name: str = src.name
+        actions: list[Action] = []
+        if stamp_time:
+            actions.append(
+                Action(
+                    "Rollback to stamp",
+                    lambda f=filepath: rollback_system_file(f, "stamp"),
+                    confirm=f"Rollback {name}\nto last stamp?",
+                )
+            )
         actions.append(
             Action(
-                "Rollback to stamp",
-                lambda: rollback_system("stamp"),
-                confirm="Rollback system\nto last stamp?",
+                "Rollback to factory",
+                lambda f=filepath: rollback_system_file(f, "factory"),
+                confirm=f"Reset {name}\nto factory?",
             )
         )
-    actions.append(
-        Action(
-            "Rollback to factory",
-            lambda: rollback_system("factory"),
-            confirm="Reset system\nto factory?",
-        )
-    )
 
-    return [
-        Item(
-            name="system",
-            label="System" + (" *" if is_dirty else ""),
-            dirty=is_dirty,
-            right=human_time(stamp_time) if stamp_time else "factory",
-            actions=actions,
-        ),
-    ]
+        items.append(
+            Item(
+                name=name,
+                label=name + (" *" if repo_dirty else ""),
+                dirty=repo_dirty,
+                right=human_time(stamp_time) if stamp_time else "factory",
+                actions=actions,
+            )
+        )
+    return items
 
 
 def stamp_system() -> str:
@@ -80,8 +96,24 @@ def stamp_system() -> str:
     return git_util.stamp(SYSTEM_REPO, "system")
 
 
+def rollback_system_file(filepath: str, target: str) -> None:
+    """Rollback a single system file to stamp or factory."""
+    init_system()
+    src: Path = Path(filepath)
+    name: str = src.name
+    if target == "factory":
+        git_util.git(
+            "checkout", git_util.FACTORY_BRANCH, "--", name, cwd=SYSTEM_REPO
+        )
+    else:
+        tag: str | None = git_util.last_stamp(SYSTEM_REPO, "system")
+        if tag:
+            git_util.git("checkout", tag, "--", name, cwd=SYSTEM_REPO)
+    git_util.add_and_commit(SYSTEM_REPO, f"rollback {name}")
+
+
 def rollback_system(target: str) -> None:
-    """Rollback system to stamp or factory."""
+    """Rollback all system files to stamp or factory."""
     init_system()
     if target == "factory":
         git_util.factory_reset(SYSTEM_REPO)

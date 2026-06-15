@@ -8,6 +8,7 @@ import time
 
 from pistomp_recovery.config import list_config_items
 from pistomp_recovery.hardware.encoder import EncoderInput
+from pistomp_recovery.hardware.lcd import LcdSpi
 from pistomp_recovery.items import Action, Item
 from pistomp_recovery.packages import get_available_updates, list_package_items
 from pistomp_recovery.packages.installer import (
@@ -52,7 +53,7 @@ class RecoveryApp:
         self._boot_mode: BootMode = boot_mode
         self._running: bool = True
         self._dirty: bool = True
-        self._display: Display = Display()
+        self._display: Display = Display(LcdSpi())
         self._encoder: EncoderInput = EncoderInput()
         self._input: InputManager = InputManager(self._encoder)
         self._screen_stack: list[Screen] = []

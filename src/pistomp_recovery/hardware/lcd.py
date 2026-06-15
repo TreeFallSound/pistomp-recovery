@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 class LcdSpi:
-    def __init__(self, baudrate: int = 24_000_000, flip: bool = True) -> None:
+    def __init__(self, baudrate: int = 56_000_000, flip: bool = True) -> None:
         self._baudrate: int = baudrate
         self._flip: bool = flip
         self._disp: object | None = None

@@ -33,41 +33,56 @@ def init_config() -> None:
     git_util.git("checkout", git_util.DEVICE_BRANCH, cwd=CONFIG_REPO, check=False)
 
 
-def list_config_items() -> list[Item]:
-    """Return Item list for config files. Only dirty-check + rollback actions."""
-    init_config()
-    is_dirty: bool = bool(
+def _repo_is_dirty() -> bool:
+    return bool(
         git_util.git("status", "--porcelain", cwd=CONFIG_REPO, check=False).strip()
     )
-    stamp_tag: str | None = git_util.last_stamp(CONFIG_REPO, "config")
-    stamp_time: datetime | None = _parse_stamp_time(stamp_tag) if stamp_tag else None
 
-    actions: list[Action] = []
-    if stamp_time:
+
+def _repo_stamp_time() -> datetime | None:
+    stamp_tag: str | None = git_util.last_stamp(CONFIG_REPO, "config")
+    return _parse_stamp_time(stamp_tag) if stamp_tag else None
+
+
+def list_config_items() -> list[Item]:
+    """Return one Item per config file."""
+    init_config()
+    repo_dirty: bool = _repo_is_dirty()
+    stamp_time: datetime | None = _repo_stamp_time()
+
+    items: list[Item] = []
+    for filename in CONFIG_FILES:
+        src: Path = Path(CONFIG_DIR) / filename
+        if not src.exists():
+            continue
+
+        actions: list[Action] = []
+        if stamp_time:
+            actions.append(
+                Action(
+                    "Rollback to stamp",
+                    lambda f=filename: rollback_config_file(f, "stamp"),
+                    confirm=f"Rollback {filename}\nto last stamp?",
+                )
+            )
         actions.append(
             Action(
-                "Rollback to stamp",
-                lambda: rollback_config("stamp"),
-                confirm="Rollback config\nto last stamp?",
+                "Rollback to factory",
+                lambda f=filename: rollback_config_file(f, "factory"),
+                confirm=f"Reset {filename}\nto factory?",
             )
         )
-    actions.append(
-        Action(
-            "Rollback to factory",
-            lambda: rollback_config("factory"),
-            confirm="Reset config\nto factory?",
-        )
-    )
 
-    return [
-        Item(
-            name="config",
-            label="Config" + (" *" if is_dirty else ""),
-            dirty=is_dirty,
-            right=human_time(stamp_time) if stamp_time else "factory",
-            actions=actions,
-        ),
-    ]
+        items.append(
+            Item(
+                name=filename,
+                label=filename + (" *" if repo_dirty else ""),
+                dirty=repo_dirty,
+                right=human_time(stamp_time) if stamp_time else "factory",
+                actions=actions,
+            )
+        )
+    return items
 
 
 def stamp_config() -> str:
@@ -77,8 +92,22 @@ def stamp_config() -> str:
     return git_util.stamp(CONFIG_REPO, "config")
 
 
+def rollback_config_file(filename: str, target: str) -> None:
+    """Rollback a single config file to stamp or factory."""
+    init_config()
+    if target == "factory":
+        git_util.git(
+            "checkout", git_util.FACTORY_BRANCH, "--", filename, cwd=CONFIG_REPO
+        )
+    else:
+        tag: str | None = git_util.last_stamp(CONFIG_REPO, "config")
+        if tag:
+            git_util.git("checkout", tag, "--", filename, cwd=CONFIG_REPO)
+    git_util.add_and_commit(CONFIG_REPO, f"rollback {filename}")
+
+
 def rollback_config(target: str) -> None:
-    """Rollback config to stamp or factory."""
+    """Rollback all config files to stamp or factory."""
     init_config()
     if target == "factory":
         git_util.factory_reset(CONFIG_REPO)

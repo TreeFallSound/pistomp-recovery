@@ -99,6 +99,9 @@ class FileFacet:
     # Facet protocol aliases
     init = init_repo
 
+    def remote_updates(self) -> list[Item]:
+        return []
+
     def rollback(self, name: str, target: RollbackTarget) -> None:
         self.rollback_file(name, target)
 
@@ -112,9 +115,7 @@ class FileFacet:
 
     def _exists_in_ref(self, filename: str, ref: str) -> bool:
         """Return True if ``filename`` is tracked in ``ref``."""
-        result: str = git_util.git(
-            "ls-tree", ref, "--", filename, cwd=self.repo_dir, check=False
-        )
+        result: str = git_util.git("ls-tree", ref, "--", filename, cwd=self.repo_dir, check=False)
         return bool(result.strip())
 
     def _delete_from_repo(self, filename: str) -> None:

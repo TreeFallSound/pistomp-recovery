@@ -34,6 +34,16 @@ class Facet(Protocol):
         """Rollback one item to ``target`` ("factory" or "stamp")."""
         ...
 
+    def remote_updates(self) -> list[Item]:
+        """Return items with pending remote updates and their action callbacks.
+
+        Items returned here appear under the Updates menu for this facet's
+        domain.  Each item should carry an ``Action("Update", ...)`` if
+        the facet can apply the update itself.  A facet that has no remote
+        update concept (e.g. local-only config files) returns an empty list.
+        """
+        return []
+
 
 _FACETS: dict[str, Facet] = {}
 

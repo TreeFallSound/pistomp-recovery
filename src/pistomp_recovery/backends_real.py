@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import logging
 import threading
-from typing import cast
 
 import pygame
 
@@ -21,16 +20,13 @@ from pistomp_recovery.backends import (
     ProgressCallback,
     ServiceBackend,
 )
-from pistomp_recovery.constants import domain_for_package
 from pistomp_recovery.facet import all_facets, register_default_facets
 from pistomp_recovery.hardware.encoder import EncoderInput
 from pistomp_recovery.hardware.lcd import LcdSpi
 from pistomp_recovery.hardware.switch import AdcSwitch
-from pistomp_recovery.items import Item, PackageUpdate
-from pistomp_recovery.packages import get_available_updates
+from pistomp_recovery.items import Item
 from pistomp_recovery.packages import installer as package_installer
 from pistomp_recovery.packages.packages import stamp_packages
-from pistomp_recovery.pedalboards import PedalboardFacet
 from pistomp_recovery.service import (
     CrashInfo,
     diagnose_crash,
@@ -122,39 +118,17 @@ class RealDataBackend(DataBackend):
             result.append(Item(it.name, it.label, it.dirty, it.right, actions))
         return result
 
-    def available_updates(self, domain: str) -> list[PackageUpdate]:
-        try:
-            raw: list[tuple[str, str, str]] = get_available_updates()
-        except Exception:
-            logger.debug("Could not query updates", exc_info=True)
-            return []
-        return [
-            PackageUpdate(name=u[0], old_version=u[1], new_version=u[2])
-            for u in raw
-            if domain_for_package(u[0]) == domain
-        ]
-
     def _update_items(self, domain: str) -> list[Item]:
-        if domain == "pedalboards":
-            facet = cast(PedalboardFacet | None, all_facets().get("pedalboards"))
-            if isinstance(facet, PedalboardFacet):
-                try:
-                    return facet.remote_updates()
-                except Exception:
-                    logger.debug("Could not query pedalboard updates", exc_info=True)
+        if domain == "plugins":
             return []
-
-        scoped = self.available_updates(domain)
-        return [
-            Item(
-                name=u.name,
-                label=f"{u.name} {u.old_version}",
-                dirty=False,
-                right=f"↑{u.new_version}",
-                actions=[],
-            )
-            for u in scoped
-        ]
+        facet = all_facets().get(domain)
+        if facet is None:
+            return []
+        try:
+            return facet.remote_updates()
+        except Exception:
+            logger.debug("Could not query %s updates", domain, exc_info=True)
+            return []
 
     def install_packages(
         self,

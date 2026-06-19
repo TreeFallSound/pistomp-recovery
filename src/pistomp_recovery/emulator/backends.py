@@ -30,7 +30,6 @@ from pistomp_recovery.constants import (
     LCD_HEIGHT,
     LCD_WIDTH,
     PISTOMP_PACKAGES,
-    domain_for_package,
 )
 from pistomp_recovery.emulator.controls import FakeEncoderInput, FakeInputManager
 from pistomp_recovery.facet import RollbackTarget, clear_facets, register_facet
@@ -159,6 +158,18 @@ class EmulatorPackageFacet:
         """Remove the given packages from the pending-update list."""
         self._updates = [u for u in self._updates if u.name not in packages]
 
+    def remote_updates(self) -> list[Item]:
+        return [
+            Item(
+                u.name,
+                f"{u.name} {u.old_version}",
+                False,
+                f"\u2191{u.new_version}",
+                [],
+            )
+            for u in self._updates
+        ]
+
     def install(self, pkg: str, new_version: str) -> None:
         """Simulate installing a package."""
         logger.info("Installing %s -> %s (emulated)", pkg, new_version)
@@ -265,9 +276,7 @@ class EmulatorDataBackend(DataBackend):
             logger.debug("Could not list %s items", domain, exc_info=True)
             return []
 
-        wanted: str = (
-            "Rollback to stamp" if mode == "checkpoint" else "Rollback to factory"
-        )
+        wanted: str = "Rollback to stamp" if mode == "checkpoint" else "Rollback to factory"
         result: list[Item] = []
         for it in raw:
             actions = [a for a in it.actions if a.label == wanted]
@@ -278,24 +287,17 @@ class EmulatorDataBackend(DataBackend):
             result.append(Item(it.name, it.label, it.dirty, it.right, actions))
         return result
 
-    def available_updates(self, domain: str) -> list[PackageUpdate]:
-        return [
-            u for u in self._package_facet.pending_updates()
-            if domain_for_package(u.name) == domain
-        ]
-
     def _update_items(self, domain: str) -> list[Item]:
-        scoped = self.available_updates(domain)
-        return [
-            Item(
-                u.name,
-                f"{u.name} {u.old_version}",
-                False,
-                f"\u2191{u.new_version}",
-                [],
-            )
-            for u in scoped
-        ]
+        from pistomp_recovery.facet import all_facets
+
+        facet = all_facets().get(domain)
+        if facet is None:
+            return []
+        try:
+            return facet.remote_updates()
+        except Exception:
+            logger.debug("Could not query %s updates", domain, exc_info=True)
+            return []
 
     def install_packages(
         self,

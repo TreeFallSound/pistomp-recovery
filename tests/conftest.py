@@ -193,9 +193,6 @@ class FakeDataBackend(DataBackend):
             ]
         return list(self._items.get(mode, {}).get(domain, []))
 
-    def available_updates(self, domain: str) -> list[PackageUpdate]:
-        return list(self._updates.get(domain, []))
-
     def install_packages(
         self, packages: list[str], progress: Callable[[str, float, str, bool], None]
     ) -> bool:

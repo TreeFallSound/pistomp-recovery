@@ -96,6 +96,18 @@ class PackageFacet:
                 updates.append((parts[0], "unknown", parts[1]))
         return updates
 
+    def remote_updates(self) -> list[Item]:
+        return [
+            Item(
+                name=name,
+                label=f"{name} {old_ver}",
+                dirty=False,
+                right=f"\u2191{new_ver}",
+                actions=[],
+            )
+            for name, old_ver, new_ver in self.available_updates()
+        ]
+
     def list_items(self) -> list[Item]:
         self.init()
         installed: dict[str, str] = self._collect_versions()
@@ -107,9 +119,7 @@ class PackageFacet:
         stamp_path: Path = Path(PACKAGES_STAMP_FILE)
         if stamp_path.exists():
             try:
-                stamp_time = datetime.fromtimestamp(
-                    stamp_path.stat().st_mtime, tz=timezone.utc
-                )
+                stamp_time = datetime.fromtimestamp(stamp_path.stat().st_mtime, tz=timezone.utc)
             except OSError:
                 pass
 
@@ -157,9 +167,7 @@ class PackageFacet:
                         confirm=f"Rollback {pkg}\nto factory?",
                     )
                 )
-            items.append(
-                Item(name=pkg, label=label, dirty=is_dirty, right=right, actions=actions)
-            )
+            items.append(Item(name=pkg, label=label, dirty=is_dirty, right=right, actions=actions))
         return items
 
     def _install_single(self, pkg: str) -> None:

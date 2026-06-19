@@ -184,12 +184,12 @@ class RealServiceBackend(ServiceBackend):
     def reboot(self) -> None:
         import subprocess
 
-        subprocess.run(["systemctl", "reboot"], check=False)
+        subprocess.run(["sudo", "systemctl", "reboot"], check=False)
 
     def power_off(self) -> None:
         import subprocess
 
-        subprocess.run(["systemctl", "poweroff"], check=False)
+        subprocess.run(["sudo", "systemctl", "poweroff"], check=False)
 
     def recovery_sha(self) -> str:
         return recovery_sha()

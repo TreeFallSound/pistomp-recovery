@@ -69,7 +69,7 @@ def stop_main_app() -> bool:
     """
     logger.info("Stopping mod-ala-pi-stomp")
     result: subprocess.CompletedProcess[str] = subprocess.run(
-        ["systemctl", "stop", "mod-ala-pi-stomp"],
+        ["sudo", "systemctl", "stop", "mod-ala-pi-stomp"],
         capture_output=True,
         text=True,
     )
@@ -78,14 +78,15 @@ def stop_main_app() -> bool:
 
 def start_main_app() -> bool:
     logger.info("Resetting failure state and starting mod-ala-pi-stomp")
-    subprocess.run(["systemctl", "reset-failed", "mod-ala-pi-stomp"], check=False)
+    subprocess.run(["sudo", "systemctl", "reset-failed", "mod-ala-pi-stomp"], check=False)
 
     for svc in PISTOMP_SERVICES:
-        if svc != "mod-ala-pi-stomp":
-            subprocess.run(["systemctl", "start", svc], check=False)
+        if svc in ("mod-ala-pi-stomp", "mod-ui"):
+            continue
+        subprocess.run(["sudo", "systemctl", "start", svc], check=False)
 
     result: subprocess.CompletedProcess[str] = subprocess.run(
-        ["systemctl", "start", "mod-ala-pi-stomp"],
+        ["sudo", "systemctl", "start", "mod-ala-pi-stomp"],
         capture_output=True,
         text=True,
     )
@@ -96,7 +97,7 @@ def restart_jack() -> bool:
     """Restart the JACK audio server."""
     logger.info("Restarting jack")
     result: subprocess.CompletedProcess[str] = subprocess.run(
-        ["systemctl", "restart", "jack"],
+        ["sudo", "systemctl", "restart", "jack"],
         capture_output=True,
         text=True,
     )
@@ -104,17 +105,14 @@ def restart_jack() -> bool:
 
 
 def restart_mod() -> bool:
-    """Restart the MOD stack (mod-host, mod-ui, the pi-stomp app)."""
-    logger.info("Restarting mod stack")
-    ok: bool = True
-    for svc in ("mod-host", "mod-ui", "mod-ala-pi-stomp"):
-        result: subprocess.CompletedProcess[str] = subprocess.run(
-            ["systemctl", "restart", svc],
-            capture_output=True,
-            text=True,
-        )
-        ok = ok and result.returncode == 0
-    return ok
+    """Restart the mod-host service, which runs audio."""
+    logger.info("Restarting mod-host")
+    result: subprocess.CompletedProcess[str] = subprocess.run(
+        ["sudo", "systemctl", "restart", "mod-host"],
+        capture_output=True,
+        text=True,
+    )
+    return result.returncode == 0
 
 
 def recovery_sha() -> str:
@@ -134,5 +132,3 @@ def recovery_sha() -> str:
         return _pkg_version("pistomp-recovery")[:7]
     except PackageNotFoundError:
         return "unknown"
-
-

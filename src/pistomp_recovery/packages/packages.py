@@ -79,7 +79,7 @@ class PackageFacet:
 
     def available_updates(self) -> list[tuple[str, str, str]]:
         """Sync databases and return (name, old_ver, new_ver) for each update."""
-        subprocess.run(["pacman", "-Sy"], capture_output=True, check=False)
+        subprocess.run(["sudo", "pacman", "-Sy"], capture_output=True, check=False)
         result: subprocess.CompletedProcess[str] = subprocess.run(
             ["pacman", "-Qu", *PISTOMP_PACKAGES],
             capture_output=True,
@@ -194,7 +194,7 @@ class PackageFacet:
             return
         logger.info("Rolling back %s to %s", name, version)
         subprocess.run(
-            ["pacman", "-U", "--noconfirm", f"{name}={version}"],
+            ["sudo", "pacman", "-U", "--noconfirm", f"{name}={version}"],
             check=False,
         )
 

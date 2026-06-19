@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 def download_packages(names: list[str]) -> bool:
     """pacman -Sw --noconfirm --needed. Returns True on success."""
     result: subprocess.CompletedProcess[str] = subprocess.run(
-        ["pacman", "-Sw", "--noconfirm", "--needed"] + names,
+        ["sudo", "pacman", "-Sw", "--noconfirm", "--needed"] + names,
         capture_output=True,
         text=True,
     )
@@ -22,7 +22,7 @@ def download_packages(names: list[str]) -> bool:
 def install_packages(names: list[str]) -> bool:
     """pacman -S --noconfirm --needed. Returns True on success."""
     result: subprocess.CompletedProcess[str] = subprocess.run(
-        ["pacman", "-S", "--noconfirm", "--needed"] + names,
+        ["sudo", "pacman", "-S", "--noconfirm", "--needed"] + names,
         capture_output=True,
         text=True,
     )
@@ -47,7 +47,7 @@ def install_from_cache(names: list[str]) -> bool:
         logger.warning("No cached packages found for rollback")
         return False
     result: subprocess.CompletedProcess[str] = subprocess.run(
-        ["pacman", "-U", "--noconfirm"] + cached,
+        ["sudo", "pacman", "-U", "--noconfirm"] + cached,
         capture_output=True,
         text=True,
     )

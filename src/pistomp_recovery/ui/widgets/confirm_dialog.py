@@ -60,7 +60,7 @@ class ConfirmDialog:
         if not self._lines:
             self._lines = [""]
 
-        longest: int = max(len(l) for l in self._lines) if self._lines else 0
+        longest: int = max(len(line) for line in self._lines) if self._lines else 0
         needed: int = longest * cw + _PAD * 2 + _BORDER * 2
         self._width = min(_MAX_W, max(_AIM_W, needed))
 

@@ -3,7 +3,7 @@ name = "pistomp-recovery"
 version = "0.1.0"
 description = "Package update and recovery service for pi-Stomp"
 requires-python = ">=3.12"
-dependencies = ["pygame>=2.5"]
+dependencies = ["pygame>=2.5", "numpy>=2.4"]
 
 [project.optional-dependencies]
 hardware = [
@@ -12,6 +12,8 @@ hardware = [
     "spidev>=3.6; sys_platform == 'linux'",
     "adafruit-circuitpython-rgb-display>=1.0; sys_platform == 'linux'",
     "adafruit-circuitpython-mcp3xxx>=1.0; sys_platform == 'linux'",
+    "pillow>=10.0; sys_platform == 'linux'",
+    "gpiozero>=2.0; sys_platform == 'linux'",
 ]
 
 [dependency-groups]

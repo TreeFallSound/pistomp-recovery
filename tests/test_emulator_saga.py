@@ -1,3 +1,4 @@
+# pyright: reportPrivateUsage=false
 """Saga tests — end-to-end domain actions using real emulator backends.
 
 These test the full action pipeline: navigate to a domain item → confirm →
@@ -8,7 +9,7 @@ live files and stamps.
 
 from __future__ import annotations
 
-from pathlib import Path
+from collections.abc import Iterator
 
 import pytest
 
@@ -27,7 +28,7 @@ from tests.conftest import AppHarness
 
 
 @pytest.fixture
-def emulator_harness() -> AppHarness:
+def emulator_harness() -> Iterator[AppHarness]:
     display = PygameDisplayBackend()
     encoder = FakeEncoderInput()
     inp = FakeInputBackend(encoder)
@@ -151,7 +152,9 @@ class TestCheckpointEmptyWhenClean:
         assert "settings.yml *" in rows, f"expected settings.yml * in {rows}"
         assert "default_config.yml *" in rows, f"expected default_config.yml * in {rows}"
 
-    def test_checkpoint_pedalboards_shows_stamped_dirty(self, emulator_harness: AppHarness) -> None:
+    def test_checkpoint_pedalboards_shows_stamped_dirty(
+        self, emulator_harness: AppHarness
+    ) -> None:
         """AmpBud is stamped and modified, so it appears in checkpoint mode."""
         harness = emulator_harness
         harness.select("Reset to Checkpoint")

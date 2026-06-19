@@ -1,3 +1,4 @@
+# pyright: reportPrivateUsage=false, reportUnusedFunction=false
 """Test fixtures using dependency-injected fake backends.
 
 Shims for Raspberry Pi / CircuitPython hardware modules unavailable on macOS/Windows.
@@ -22,7 +23,7 @@ import pytest  # noqa: E402
 from PIL import Image  # noqa: E402
 
 from pistomp_recovery.app import RecoveryAppCore  # noqa: E402
-from pistomp_recovery.backends import AppBackends, DataBackend  # noqa: E402
+from pistomp_recovery.backends import AppBackends, DataBackend, DisplayBackend  # noqa: E402
 from pistomp_recovery.items import Action, Item, PackageUpdate  # noqa: E402
 from pistomp_recovery.service import BootMode, CrashInfo  # noqa: E402
 from pistomp_recovery.ui.screens.menu_screen import MenuScreen as MS  # noqa: E402
@@ -271,7 +272,7 @@ class FakeServiceBackend:
 class AppHarness:
     """Wraps a RecoveryAppCore with event injection and frame capture."""
 
-    def __init__(self, app: RecoveryAppCore, display: FakeDisplayBackend) -> None:
+    def __init__(self, app: RecoveryAppCore, display: DisplayBackend) -> None:
         self.app = app
         self.display = display
 

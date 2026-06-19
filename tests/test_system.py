@@ -1,3 +1,4 @@
+# pyright: reportPrivateUsage=false
 """Tests for the system recovery facet (copy + hash model)."""
 
 from __future__ import annotations

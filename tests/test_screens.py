@@ -1,3 +1,4 @@
+# pyright: reportPrivateUsage=false
 """Integration tests that drive the recovery app via fake backends.
 
 Each test asserts behavior (navigation, confirm, progress) and captures

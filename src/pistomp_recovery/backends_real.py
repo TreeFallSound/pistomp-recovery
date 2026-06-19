@@ -24,6 +24,7 @@ from pistomp_recovery.constants import domain_for_package
 from pistomp_recovery.facet import all_facets, register_default_facets
 from pistomp_recovery.hardware.encoder import EncoderInput
 from pistomp_recovery.hardware.lcd import LcdSpi
+from pistomp_recovery.hardware.switch import AdcSwitch
 from pistomp_recovery.items import Item, PackageUpdate
 from pistomp_recovery.packages import get_available_updates
 from pistomp_recovery.packages import installer as package_installer
@@ -62,18 +63,19 @@ class LcdDisplayBackend(DisplayBackend):
 
 
 class GpioInputBackend(InputBackend):
-    """Rotary encoder + switch on real GPIO."""
+    """Rotary encoder + switch on real GPIO/ADC."""
 
     def __init__(self) -> None:
         self._encoder: EncoderInput = EncoderInput()
-        self._input: InputManager = InputManager(self._encoder)
+        self._switch: AdcSwitch = AdcSwitch()
+        self._input: InputManager = InputManager(self._encoder, self._switch)
 
     def start(self) -> None:
-        self._encoder.start()
+        # InputManager owns starting/stopping the encoder and switch; calling
+        # them here too would double-claim the GPIO pins (GPIOPinInUse).
         self._input.start()
 
     def stop(self) -> None:
-        self._encoder.stop()
         self._input.stop()
 
     def poll(self) -> list[InputEvent]:

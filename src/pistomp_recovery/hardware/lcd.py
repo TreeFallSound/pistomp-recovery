@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 class LcdSpi:
-    def __init__(self, baudrate: int = 56_000_000, flip: bool = True) -> None:
+    def __init__(self, baudrate: int = 80_000_000, flip: bool = True) -> None:
         self._baudrate: int = baudrate
         self._flip: bool = flip
         self._disp: object | None = None
@@ -41,6 +41,11 @@ class LcdSpi:
         except ImportError:
             logger.error("LCD dependencies not available (board, adafruit_rgb_display)")
             raise
+
+        # Speed up per-frame transfers before the first blit (see driver_patch).
+        from pistomp_recovery.hardware import driver_patch
+
+        driver_patch.apply()
 
         spi = board.SPI()  # type: ignore[union-attr]
         cs_pin = digitalio.DigitalInOut(board.CE0)  # type: ignore[union-attr]
@@ -83,11 +88,11 @@ class LcdSpi:
             from PIL import Image  # type: ignore[import-untyped]
 
             pil_img: Image.Image = Image.frombytes("RGB", (LCD_WIDTH, LCD_HEIGHT), rgb)
-            self._disp.image(pil_img)  # type: ignore[union-attr]
+            self._disp.image(pil_img, 270 if self._flip else 90)  # type: ignore[union-attr]
 
     def clear(self) -> None:
         if self._disp is not None:
             from PIL import Image  # type: ignore[import-untyped]
 
             black: Image.Image = Image.new("RGB", (LCD_WIDTH, LCD_HEIGHT), (0, 0, 0))
-            self._disp.image(black)  # type: ignore[union-attr]
+            self._disp.image(black, 270 if self._flip else 90)  # type: ignore[union-attr]

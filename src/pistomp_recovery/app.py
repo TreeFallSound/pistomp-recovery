@@ -273,6 +273,13 @@ class RecoveryAppCore:
 
     def _item_target(self, item: Item, mode: str, domain: str) -> Target:
         if mode == MODE_UPDATES:
+            if item.actions:
+                action = item.actions[0]
+                return Target(
+                    item.label,
+                    self._wrap_with_refresh(action.callback, mode, domain),
+                    confirm=action.confirm,
+                )
             return Target(
                 item.label,
                 lambda: self._install_packages([item.name]),

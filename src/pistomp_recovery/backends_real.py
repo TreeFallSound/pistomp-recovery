@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from typing import cast
 
 import pygame
 
@@ -29,6 +30,7 @@ from pistomp_recovery.items import Item, PackageUpdate
 from pistomp_recovery.packages import get_available_updates
 from pistomp_recovery.packages import installer as package_installer
 from pistomp_recovery.packages.packages import stamp_packages
+from pistomp_recovery.pedalboards import PedalboardFacet
 from pistomp_recovery.service import (
     CrashInfo,
     diagnose_crash,
@@ -133,6 +135,15 @@ class RealDataBackend(DataBackend):
         ]
 
     def _update_items(self, domain: str) -> list[Item]:
+        if domain == "pedalboards":
+            facet = cast(PedalboardFacet | None, all_facets().get("pedalboards"))
+            if isinstance(facet, PedalboardFacet):
+                try:
+                    return facet.remote_updates()
+                except Exception:
+                    logger.debug("Could not query pedalboard updates", exc_info=True)
+            return []
+
         scoped = self.available_updates(domain)
         return [
             Item(

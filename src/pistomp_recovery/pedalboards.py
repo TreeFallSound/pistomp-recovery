@@ -40,6 +40,42 @@ class PedalboardFacet:
             git_util.create_factory_branch(target)
         git_util.git("checkout", git_util.DEVICE_BRANCH, cwd=target, check=False)
 
+    def remote_updates(self, path: Path | None = None) -> list[Item]:
+        """Check remote for newer pedalboard versions."""
+        repo = path or self.path
+        local_head: str = git_util.git("rev-parse", "HEAD", cwd=repo, check=False)
+        if not local_head:
+            return []
+        remote_hash: str | None = git_util.remote_head(repo)
+        if not remote_hash or remote_hash == local_head:
+            return []
+        git_util.fetch_origin(repo)
+        changed: set[str] = git_util.remote_changed_dirs(repo, ".pedalboard")
+        return [
+            Item(
+                name=name,
+                label=name,
+                dirty=False,
+                right="update available",
+                actions=[
+                    Action(
+                        "Update",
+                        lambda n=name: self.update(n, repo),
+                        confirm=f"Update {name}\nfrom remote?",
+                    ),
+                ],
+            )
+            for name in sorted(changed)
+        ]
+
+    def update(self, name: str, path: Path | None = None) -> None:
+        """Fetch remote and reset the named pedalboard to FETCH_HEAD content."""
+        repo = path or self.path
+        git_util.fetch_origin(repo)
+        git_util.git("checkout", "FETCH_HEAD", "--", name, cwd=repo)
+        git_util.add_and_commit(repo, f"update {name} from remote")
+        git_util.git("clean", "-fd", "--", name, cwd=repo)
+
     def list_items(self, path: Path | None = None) -> list[Item]:
         target = path or self.path
         self.init(target)

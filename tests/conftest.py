@@ -24,7 +24,7 @@ from PIL import Image  # noqa: E402
 
 from pistomp_recovery.app import RecoveryAppCore  # noqa: E402
 from pistomp_recovery.backends import AppBackends, DataBackend, DisplayBackend  # noqa: E402
-from pistomp_recovery.items import Action, Item, PackageUpdate  # noqa: E402
+from pistomp_recovery.items import Item, PackageUpdate  # noqa: E402
 from pistomp_recovery.service import BootMode, CrashInfo  # noqa: E402
 from pistomp_recovery.ui.screens.menu_screen import MenuScreen as MS  # noqa: E402
 
@@ -186,8 +186,8 @@ class FakeDataBackend(DataBackend):
                     u.name,
                     f"{u.name} {u.old_version}",
                     False,
-                    f"↑{u.new_version}",
-                    [Action("Update", lambda u=u: None)],
+                    f"\u2191{u.new_version}",
+                    [],
                 )
                 for u in self._updates.get(domain, [])
             ]
@@ -205,9 +205,7 @@ class FakeDataBackend(DataBackend):
         # Remove installed packages from update lists so the refresh hides them,
         # mirroring real backend behavior.
         for domain, updates in self._updates.items():
-            self._updates[domain] = [
-                u for u in updates if u.name not in packages
-            ]
+            self._updates[domain] = [u for u in updates if u.name not in packages]
         return self._install_success
 
 

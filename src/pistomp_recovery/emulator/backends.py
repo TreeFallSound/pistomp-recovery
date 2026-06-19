@@ -373,6 +373,14 @@ class EmulatorServiceBackend(ServiceBackend):
         logger.info("Restarting MOD (emulated)")
         return True
 
+    def diagnose_services(self, services: list[str]) -> CrashInfo:
+        return CrashInfo(
+            boot_mode=BootMode.USER_RECOVERY,
+            failed_service=None,
+            crash_log="",
+            service_states={s: "active" for s in services},
+        )
+
     def reboot(self) -> None:
         logger.info("Reboot (emulated)")
 

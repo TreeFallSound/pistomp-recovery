@@ -30,6 +30,7 @@ from pistomp_recovery.packages.packages import stamp_packages
 from pistomp_recovery.service import (
     CrashInfo,
     diagnose_crash,
+    diagnose_services,
     recovery_sha,
     restart_jack,
     restart_mod,
@@ -180,6 +181,9 @@ class RealServiceBackend(ServiceBackend):
 
     def restart_mod(self) -> bool:
         return restart_mod()
+
+    def diagnose_services(self, services: list[str]) -> CrashInfo:
+        return diagnose_services(services)
 
     def reboot(self) -> None:
         import subprocess

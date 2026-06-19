@@ -7,6 +7,7 @@ Injected into sys.modules at import time so application code can be imported in 
 
 import os
 import sys
+import time
 from pathlib import Path
 from typing import Callable, Generator
 from unittest.mock import MagicMock
@@ -218,10 +219,12 @@ class FakeServiceBackend:
         self,
         boot_mode: BootMode = BootMode.USER_RECOVERY,
         sha: str = "abc1234",
+        restart_diagnosis: CrashInfo | None = None,
     ) -> None:
         self.boot_mode = boot_mode
         self.sha = sha
         self.calls: list[str] = []
+        self.restart_diagnosis: CrashInfo | None = restart_diagnosis
 
     def stop_main_app(self) -> bool:
         self.calls.append("stop_main_app")
@@ -233,11 +236,24 @@ class FakeServiceBackend:
 
     def restart_jack(self) -> bool:
         self.calls.append("restart_jack")
+        time.sleep(0.05)
         return True
 
     def restart_mod(self) -> bool:
         self.calls.append("restart_mod")
+        time.sleep(0.05)
         return True
+
+    def diagnose_services(self, services: list[str]) -> CrashInfo:
+        self.calls.append(f"diagnose_services:{','.join(services)}")
+        if self.restart_diagnosis is not None:
+            return self.restart_diagnosis
+        return CrashInfo(
+            boot_mode=BootMode.USER_RECOVERY,
+            failed_service=None,
+            crash_log="",
+            service_states={s: "active" for s in services},
+        )
 
     def reboot(self) -> None:
         self.calls.append("reboot")

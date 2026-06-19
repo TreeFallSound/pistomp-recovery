@@ -9,6 +9,7 @@ the same core with different backends.
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from typing import Callable
 
@@ -22,6 +23,8 @@ from pistomp_recovery.ui.screens.crash import CrashScreen
 from pistomp_recovery.ui.screens.menu_screen import MenuScreen
 from pistomp_recovery.ui.widgets.header import ICON_BACK, ICON_EXIT
 from pistomp_recovery.ui.widgets.misc import InputEvent
+
+_RESTART_MAX_COLS: int = 38
 
 logger = logging.getLogger(__name__)
 
@@ -179,8 +182,14 @@ class RecoveryAppCore:
         rows: list[Row] = [
             Row(
                 (
-                    Target("Jack", services.restart_jack),
-                    Target("MOD", services.restart_mod),
+                    Target(
+                        "Jack",
+                        lambda: self._restart_service("Jack", ["jack"], services.restart_jack),
+                    ),
+                    Target(
+                        "MOD",
+                        lambda: self._restart_service("MOD", ["mod-host"], services.restart_mod),
+                    ),
                 ),
                 prefix="Restart ",
             ),
@@ -405,6 +414,60 @@ class RecoveryAppCore:
                 self._dirty = True
 
         self._backends.data.install_packages(packages, progress)
+
+    # -- service restarts ---------------------------------------------------
+
+    def _restart_service(
+        self,
+        label: str,
+        service_names: list[str],
+        restart_fn: Callable[[], bool],
+    ) -> None:
+        menu = self.current_screen()
+        if not isinstance(menu, MenuScreen):
+            return
+        menu.set_progress(f"Restarting {label}...", 0.0, f"Restarting {label}...", False)
+        self._dirty = True
+
+        def _run() -> None:
+            restart_fn()
+            info: CrashInfo = self._backends.services.diagnose_services(service_names)
+            if info.failed_service:
+                self._push_restart_result(label, service_names, restart_fn, info)
+            else:
+                menu.set_progress(
+                    f"{label} running",
+                    1.0,
+                    f"{label} restarted OK. Click to continue.",
+                    done=True,
+                )
+            self._dirty = True
+
+        threading.Thread(target=_run, daemon=True).start()
+
+    def _push_restart_result(
+        self,
+        label: str,
+        service_names: list[str],
+        restart_fn: Callable[[], bool],
+        info: CrashInfo,
+    ) -> None:
+        rows: list[Row] = []
+        for svc, state in info.service_states.items():
+            marker: str = "  <--" if state == "failed" else ""
+            rows.append(Row(prefix=f"{svc}: {state}{marker}"[:_RESTART_MAX_COLS]))
+        if info.crash_log:
+            rows.append(Row(prefix=""))
+            for line in info.crash_log.split("\n")[-5:]:
+                rows.append(Row(prefix=line[:_RESTART_MAX_COLS]))
+        rows.append(Row(prefix=""))
+
+        def _retry() -> None:
+            self.pop_screen()
+            self._restart_service(label, service_names, restart_fn)
+
+        rows.append(Row((Target("BACK", self.pop_screen), Target("RETRY", _retry))))
+        self._push_menu(f"Restart {label} Failed", rows, back=True)
 
     # -- exit ---------------------------------------------------------------
 

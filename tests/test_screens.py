@@ -8,12 +8,13 @@ regressions. Run with --snapshot-update to regenerate snapshots.
 
 from __future__ import annotations
 
+import time
 from typing import Callable
 
 from pistomp_recovery.app import RecoveryAppCore
 from pistomp_recovery.backends import AppBackends
 from pistomp_recovery.items import Action, Item, PackageUpdate, Row, Target
-from pistomp_recovery.service import BootMode
+from pistomp_recovery.service import BootMode, CrashInfo
 from pistomp_recovery.ui.screens.menu_screen import MenuScreen
 from pistomp_recovery.ui.widgets.header import ICON_BACK, ICON_EXIT
 from pistomp_recovery.ui.widgets.misc import InputEvent
@@ -347,4 +348,100 @@ def test_resume_starts_main_app(
     app.handle_event(InputEvent.CLICK)
     assert "start_main_app" in services.calls
     assert not app.running
+    app.cleanup()
+
+
+def _wait_for_restart(harness: AppHarness) -> None:
+    """Block until the restart worker thread completes and the UI is dirty."""
+    deadline = time.monotonic() + 2.0
+    while time.monotonic() < deadline:
+        time.sleep(0.01)
+        if harness.app._dirty:
+            harness.redraw()
+            return
+    raise TimeoutError("Restart worker did not complete in time")
+
+
+def test_restart_jack_success(
+    recovery_app: AppHarness,
+    fake_services: FakeServiceBackend,
+    snapshot: Callable[..., None],
+) -> None:
+    """Clicking Jack shows progress, then a done message when the service comes up."""
+    harness = recovery_app
+    harness.inject()
+
+    harness.select("Jack")
+
+    # Wait for the restart thread to finish (fake backend is instant).
+    _wait_for_restart(harness)
+
+    assert "restart_jack" in fake_services.calls
+    assert any("diagnose_services:jack" in c for c in fake_services.calls)
+
+    # Thread reported success → menu is in PROGRESS done state.
+    menu = harness._menu()
+    assert menu is not None
+    assert menu._state == "PROGRESS"
+    assert menu._progress_done
+    snapshot("done")
+
+    # Click to dismiss → back to the list.
+    harness.inject(InputEvent.CLICK)
+    assert menu._state == "LIST"
+
+
+def test_restart_jack_failure(
+    fake_display: FakeDisplayBackend,
+    fake_input: FakeInputBackend,
+    fake_data: FakeDataBackend,
+    snapshot: Callable[..., None],
+) -> None:
+    """When Jack fails to restart, a result screen with service states is shown."""
+    failing_diagnosis = CrashInfo(
+        boot_mode=BootMode.CRASH_RECOVERY,
+        failed_service="jack",
+        crash_log="ALSA: cannot find card\nJACK: server failed",
+        service_states={"jack": "failed"},
+    )
+    services = FakeServiceBackend(restart_diagnosis=failing_diagnosis)
+    app = RecoveryAppCore(
+        AppBackends(
+            display=fake_display,
+            input=fake_input,
+            data=fake_data,
+            services=services,
+        ),
+        BootMode.USER_RECOVERY,
+    )
+    app.init()
+    harness = AppHarness(app, fake_display)
+    harness.inject()
+
+    harness.select("Jack")
+
+    # Wait for thread to push the failure screen.
+    deadline = time.monotonic() + 2.0
+    while time.monotonic() < deadline and len(app._screen_stack) < 2:
+        time.sleep(0.01)
+    harness.redraw()
+
+    # A new screen should have been pushed.
+    assert len(app._screen_stack) == 2
+    result_screen = app.current_screen()
+    assert isinstance(result_screen, MenuScreen)
+    assert "Jack" in result_screen._title
+    assert "Failed" in result_screen._title
+    snapshot("failure_screen")
+
+    # The result screen shows BACK and RETRY actions.
+    labels = harness.nav_labels()
+    assert "BACK" in labels
+    assert "RETRY" in labels
+
+    # BACK pops back to the main menu.
+    harness.select("BACK")
+    assert len(app._screen_stack) == 1
+    snapshot("after_back")
+
     app.cleanup()

@@ -31,9 +31,14 @@ class CrashInfo:
 def diagnose_crash() -> CrashInfo:
     """Determine why recovery was triggered."""
     chain: list[str] = ["jack", "mod-host", "mod-ui", "mod-ala-pi-stomp"]
+    return diagnose_services(chain)
+
+
+def diagnose_services(services: list[str]) -> CrashInfo:
+    """Check the current health of the given services."""
     states: dict[str, str] = {}
     failed_service: str | None = None
-    for svc in chain:
+    for svc in services:
         states[svc] = service_status(svc)
         if states[svc] == "failed" and failed_service is None:
             failed_service = svc

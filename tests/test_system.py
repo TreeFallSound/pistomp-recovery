@@ -77,7 +77,8 @@ class TestDirtyDetection:
             Path(system_facet._source_path(filename)).write_text("same")
         system_facet.init()
 
-        assert not system_facet.is_dirty()
+        items = {item.name: item for item in system_facet.list_items()}
+        assert not any(item.dirty for item in items.values())
 
     def test_dirty_when_live_file_changes(
         self, system_facet: system.FileFacet
@@ -87,7 +88,8 @@ class TestDirtyDetection:
         system_facet.init()
         Path(system_facet._source_path(first)).write_text("changed")
 
-        assert system_facet.is_dirty()
+        items = {item.name: item for item in system_facet.list_items()}
+        assert items[first].dirty
 
 
 class TestStampAndRollback:

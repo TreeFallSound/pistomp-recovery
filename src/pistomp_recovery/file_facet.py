@@ -78,12 +78,6 @@ class FileFacet:
         for filename in self.files:
             self._copy_to_repo(filename)
 
-    def is_dirty(self) -> bool:
-        for filename in self.files:
-            if not _file_equal(self._source_path(filename), self._repo_path(filename)):
-                return True
-        return False
-
     def init_repo(self) -> None:
         self.repo_dir.mkdir(parents=True, exist_ok=True)
         if not git_util.is_repo(self.repo_dir):
@@ -147,7 +141,6 @@ class FileFacet:
 
     def list_items(self) -> list[Item]:
         self.init_repo()
-        dirty = self.is_dirty()
         stamp_time = self.stamp_time()
 
         items: list[Item] = []
@@ -157,6 +150,7 @@ class FileFacet:
             if not src.exists() and not repo_copy.exists():
                 continue
 
+            dirty = not _file_equal(src, repo_copy)
             display_name = self._display_name(filename)
             actions: list[Action] = []
             if stamp_time:

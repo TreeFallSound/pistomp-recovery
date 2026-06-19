@@ -61,7 +61,8 @@ class TestDirtyDetection:
         (source / "default_config.yml").write_text("same")
         config_facet.init()
 
-        assert not config_facet.is_dirty()
+        items = {item.name: item for item in config_facet.list_items()}
+        assert not items["default_config.yml"].dirty
 
     def test_dirty_when_live_file_changes(self, config_facet: config.FileFacet) -> None:
         source = config_facet._source_path("default_config.yml").parent
@@ -69,7 +70,8 @@ class TestDirtyDetection:
         config_facet.init()
         (source / "default_config.yml").write_text("changed")
 
-        assert config_facet.is_dirty()
+        items = {item.name: item for item in config_facet.list_items()}
+        assert items["default_config.yml"].dirty
 
     def test_dirty_when_live_file_deleted(self, config_facet: config.FileFacet) -> None:
         source = config_facet._source_path("settings.yml").parent
@@ -77,7 +79,8 @@ class TestDirtyDetection:
         config_facet.init()
         (source / "settings.yml").unlink()
 
-        assert config_facet.is_dirty()
+        items = {item.name: item for item in config_facet.list_items()}
+        assert items["settings.yml"].dirty
 
 
 class TestStampAndRollback:

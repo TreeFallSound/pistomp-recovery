@@ -6,6 +6,19 @@ PISTOMP_HOME: str = "/home/pistomp"
 DATA_DIR: str = f"{PISTOMP_HOME}/data"
 CONFIG_DIR: str = f"{DATA_DIR}/config"
 PEDALBOARDS_DIR: str = f"{DATA_DIR}/.pedalboards"
+# User LV2 plugins installed by mod-ui's PatchStorage downloader. Must match
+# mod-ui's LV2_PLUGIN_DIR (defaults to ~/.lv2). Factory plugins ship in the
+# system LV2 path and are NOT under here, so anything in this dir is user
+# content that factory-reset may remove.
+PLUGINS_DIR: str = f"{DATA_DIR}/.lv2"
+# Marker file mod-ui writes into every bundle it installs from PatchStorage
+# (see mod-ui utils/patchstorage.cpp). Its presence is how recovery tells a
+# user-installed plugin apart from a factory one.
+PATCHSTORAGE_MARKER: str = "patchstorage.json"
+# Soft warning threshold for the plugins cache. Recovery only surfaces this as
+# a warning; it does NOT auto-evict. Enforcement (refusing/pruning installs)
+# belongs in mod-ui's PatchStorage installer, which owns plugin delivery.
+PLUGINS_CACHE_WARN_BYTES: int = 512 * 1024 * 1024
 RECOVERY_DIR: str = f"{PISTOMP_HOME}/.pistomp-recovery"
 PACKAGES_STAMP_FILE: str = f"{RECOVERY_DIR}/packages.stamp"
 FACTORY_PACKAGES_FILE: str = "/etc/pistomp/factory-packages.list"
@@ -15,7 +28,7 @@ LCD_HEIGHT: int = 240
 FACTORY_BRANCH: str = "factory"
 DEVICE_BRANCH: str = "device"
 
-FACET_NAMES: tuple[str, ...] = ("config", "pedalboards", "packages", "system")
+FACET_NAMES: tuple[str, ...] = ("config", "pedalboards", "plugins", "packages", "system")
 
 PISTOMP_PACKAGES: tuple[str, ...] = (
     "jack2-pistomp",

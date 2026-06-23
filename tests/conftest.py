@@ -26,6 +26,7 @@ from PIL import Image  # noqa: E402
 from pistomp_recovery.app import RecoveryAppCore  # noqa: E402
 from pistomp_recovery.backends import AppBackends, DataBackend, DisplayBackend  # noqa: E402
 from pistomp_recovery.items import Item, PackageUpdate  # noqa: E402
+from pistomp_recovery.items import Item, PackageUpdate  # noqa: E402
 from pistomp_recovery.service import BootMode, CrashInfo  # noqa: E402
 from pistomp_recovery.ui.screens.menu_screen import MenuScreen as MS  # noqa: E402
 
@@ -165,12 +166,16 @@ class FakeDataBackend(DataBackend):
         self._installed: list[list[str]] = []
         self._install_success: bool = True
         self._install_progress: list[tuple[str, float, str, bool]] = []
+        self._domain_summaries: dict[str, dict[str, str]] = {}
 
     def set_items(self, mode: str, domain: str, items: list[Item]) -> None:
         self._items.setdefault(mode, {})[domain] = items
 
     def set_updates(self, domain: str, updates: list[PackageUpdate]) -> None:
         self._updates[domain] = updates
+
+    def set_domain_summary(self, mode: str, domain: str, summary: str) -> None:
+        self._domain_summaries.setdefault(mode, {})[domain] = summary
 
     def domains(self) -> tuple[tuple[str, str], ...]:
         return (
@@ -193,6 +198,9 @@ class FakeDataBackend(DataBackend):
                 for u in self._updates.get(domain, [])
             ]
         return list(self._items.get(mode, {}).get(domain, []))
+
+    def domain_summary(self, mode: str, domain: str) -> str:
+        return self._domain_summaries.get(mode, {}).get(domain, "")
 
     def install_packages(
         self, packages: list[str], progress: Callable[[str, float, str, bool], None]

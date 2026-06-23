@@ -84,9 +84,11 @@ def register_default_facets(
     from pistomp_recovery.config import make_config_facet
     from pistomp_recovery.packages.packages import make_package_facet
     from pistomp_recovery.pedalboards import make_pedalboard_facet
+    from pistomp_recovery.plugins import make_plugin_facet
     from pistomp_recovery.system import make_system_facet
 
     register_facet("config", make_config_facet())
     register_facet("system", make_system_facet())
     register_facet("pedalboards", make_pedalboard_facet())
+    register_facet("plugins", make_plugin_facet())
     register_facet("packages", make_package_facet(manager))

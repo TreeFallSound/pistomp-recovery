@@ -96,8 +96,6 @@ class RealDataBackend(DataBackend):
         )
 
     def domain_items(self, mode: str, domain: str) -> list[Item]:
-        if domain == "plugins":
-            return []
         if mode == "updates":
             # The core synthesizes update actions; backend just lists candidates.
             return self._update_items(domain)
@@ -122,9 +120,20 @@ class RealDataBackend(DataBackend):
             result.append(Item(it.name, it.label, it.dirty, it.right, actions))
         return result
 
+    def domain_summary(self, mode: str, domain: str) -> str:
+        if domain != "plugins" or mode != "factory":
+            return ""
+        facet = all_facets().get("plugins")
+        cache_summary = getattr(facet, "cache_summary", None)
+        if facet is None or cache_summary is None:
+            return ""
+        try:
+            return cache_summary()
+        except Exception:
+            logger.debug("Could not compute plugins cache summary", exc_info=True)
+            return ""
+
     def _update_items(self, domain: str) -> list[Item]:
-        if domain == "plugins":
-            return []
         facet = all_facets().get(domain)
         if facet is None:
             return []

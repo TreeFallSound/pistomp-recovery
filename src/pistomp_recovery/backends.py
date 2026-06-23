@@ -56,6 +56,14 @@ class DataBackend(Protocol):
         """Items for a domain in the given mode (checkpoint/factory/updates)."""
         ...
 
+    def domain_summary(self, mode: str, domain: str) -> str:
+        """Optional right-aligned badge override for a domain in the picker.
+
+        Returns "" to fall back to the default count badge. Used by the plugins
+        domain to surface the on-disk cache size instead of a change count.
+        """
+        return ""
+
     def install_packages(
         self,
         packages: list[str],

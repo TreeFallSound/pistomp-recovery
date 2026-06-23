@@ -196,29 +196,35 @@ def test_update_picker_excludes_all_from_count(
     """The Updates picker badge counts real updates, not the synthetic Update All."""
     harness = recovery_app
     harness.app._screen_stack.clear()
+    fake_data = harness.app._backends.data
+    assert isinstance(fake_data, FakeDataBackend)
+
+    # Set up real package updates so the picker shows badges.
+    fake_data.set_updates(
+        "system",
+        [PackageUpdate("a", "0.1", "0.2"), PackageUpdate("b", "0.3", "0.4")],
+    )
+    # Pedalboards and plugins have no updates (info message, not counted).
+    # Config has no update concept.
+
+    harness.app._show_domain_picker("updates")
+    harness.inject()
+    snapshot("picker")
+
+    menu = harness._menu()
+    assert menu is not None
+    # System shows "2 available", others show no badge.
+    assert menu._rows[3].right == "2 available"
+    assert menu._rows[0].right == ""  # pedalboards — info message, not counted
+    assert menu._rows[1].right == ""  # plugins — no updates
+    assert menu._rows[2].right == ""  # config — no updates
+
+    # Domain detail rows still render all items, including Update All.
     items = [
         Item("a", "a 0.1", False, "↑0.2", [Action("Update", lambda: None)]),
         Item("b", "b 0.3", False, "↑0.4", [Action("Update", lambda: None)]),
         Item("all", "Update All", False, "", [Action("Update All", lambda: None)]),
     ]
-    count = len(items)
-    has_all = items[-1].name == "all"
-    badge = RecoveryAppCore.badge("updates", count, all_item=has_all)
-    _push(
-        harness,
-        "Updates",
-        [Row((Target("System", lambda: None),), right=badge)],
-        back=True,
-    )
-    harness.inject()
-    snapshot("picker")
-
-    # Two real updates plus Update All is still reported as 2 available.
-    menu = harness._menu()
-    assert menu is not None
-    assert menu._rows[0].right == "2 available"
-
-    # Domain detail rows still render all items, including Update All.
     _push(
         harness,
         "System",
@@ -228,6 +234,63 @@ def test_update_picker_excludes_all_from_count(
     harness.inject()
     snapshot("domain_list")
     assert harness.row_labels() == ["a 0.1", "b 0.3", "Update All"]
+
+
+def test_pedalboard_updates_shows_info_message() -> None:
+    """Pedalboard remote_updates returns a word-wrapped info message, not updates."""
+    from pistomp_recovery.pedalboards import PedalboardFacet
+
+    facet = PedalboardFacet()
+    items = facet.remote_updates()
+    assert len(items) > 1
+    assert all(len(it.actions) == 1 and it.actions[0].label == "" for it in items)
+    text = " ".join(it.label for it in items)
+    assert "pistomp.local" in text
+    assert "PatchStorage" in text
+
+
+def test_plugin_facet_cache_summary(tmp_path: Path) -> None:
+    """PluginFacet.cache_summary returns a human-readable size badge."""
+    from pistomp_recovery.plugins import PluginFacet
+
+    facet = PluginFacet(path=tmp_path)
+    assert facet.cache_summary() == ""
+
+    bundle = tmp_path / "some-amp.lv2"
+    bundle.mkdir()
+    (bundle / "patchstorage.json").write_text("{}")
+    (bundle / "amp.so").write_bytes(b"\x00" * 1024)
+
+    summary = facet.cache_summary()
+    assert "1" in summary or "KB" in summary
+    assert "⚠" not in summary
+
+
+def test_plugin_facet_list_items(tmp_path: Path) -> None:
+    """PluginFacet.list_items returns user bundles with factory-reset actions."""
+    from pistomp_recovery.plugins import PluginFacet
+
+    facet = PluginFacet(path=tmp_path)
+
+    # No bundles → empty list.
+    assert facet.list_items() == []
+
+    # Create a user-installed bundle (has patchstorage.json marker).
+    bundle = tmp_path / "some-amp.lv2"
+    bundle.mkdir()
+    (bundle / "patchstorage.json").write_text("{}")
+    (bundle / "amp.so").write_bytes(b"\x00" * 1024)
+
+    items = facet.list_items()
+    assert len(items) == 1
+    assert items[0].name == "some-amp.lv2"
+    assert items[0].dirty
+    assert any(a.label == "Rollback to factory" for a in items[0].actions)
+
+    # Bundle without marker is ignored.
+    (tmp_path / "factory-only.lv2").mkdir()
+    (tmp_path / "factory-only.lv2" / "factory.so").write_bytes(b"\x00" * 64)
+    assert len(facet.list_items()) == 1
 
 
 def test_update_items_are_selectable_with_empty_actions(
@@ -250,6 +313,88 @@ def test_update_items_are_selectable_with_empty_actions(
     assert harness.row_labels() == ["a 0.1", "b 0.3"]
     # All update items should be navigable (enabled) even with empty actions.
     assert all(target.enabled for row in menu._rows for target in row.targets)
+
+
+def test_pedalboard_updates_screen_shows_info_message(
+    recovery_app: AppHarness, snapshot: Callable[..., None]
+) -> None:
+    """Updates → Pedalboards shows the word-wrapped info message instead of updates."""
+    from pistomp_recovery.pedalboards import PedalboardFacet
+
+    harness = recovery_app
+    harness.app._screen_stack.clear()
+    items = PedalboardFacet().remote_updates()
+    assert len(items) > 1
+    _push(
+        harness,
+        "Pedalboards",
+        [Row((Target(it.label, lambda: None, enabled=False),)) for it in items],
+        back=True,
+    )
+    harness.inject()
+    snapshot()
+
+    text = " ".join(harness.row_labels())
+    assert "pistomp.local" in text
+    assert "PatchStorage" in text
+
+
+def test_plugins_factory_picker_shows_cache_badge(
+    recovery_app: AppHarness, snapshot: Callable[..., None]
+) -> None:
+    """Factory Reset → Plugins shows the cache size badge from domain_summary."""
+    harness = recovery_app
+    harness.app._screen_stack.clear()
+    fake_data = harness.app._backends.data
+    assert isinstance(fake_data, FakeDataBackend)
+
+    # 12 plugins: 8 stamped, 2 unstamped+dirty, 2 factory.
+    plugins: list[Item] = [
+        Item("stamped-amp.lv2", "stamped-amp.lv2", False, "2d ago",
+             [Action("Rollback to factory", lambda: None)]),
+        Item("stamped-delay.lv2", "stamped-delay.lv2", False, "5h ago",
+             [Action("Rollback to factory", lambda: None)]),
+        Item("stamped-reverb.lv2", "stamped-reverb.lv2", False, "1d ago",
+             [Action("Rollback to factory", lambda: None)]),
+        Item("stamped-chorus.lv2", "stamped-chorus.lv2", False, "3d ago",
+             [Action("Rollback to factory", lambda: None)]),
+        Item("stamped-flanger.lv2", "stamped-flanger.lv2", False, "6h ago",
+             [Action("Rollback to factory", lambda: None)]),
+        Item("stamped-comp.lv2", "stamped-comp.lv2", False, "just now",
+             [Action("Rollback to factory", lambda: None)]),
+        Item("stamped-eq.lv2", "stamped-eq.lv2", False, "2h ago",
+             [Action("Rollback to factory", lambda: None)]),
+        Item("stamped-dist.lv2", "stamped-dist.lv2", False, "4d ago",
+             [Action("Rollback to factory", lambda: None)]),
+        Item("dirty-trem.lv2", "dirty-trem.lv2", True, "12 KB",
+             [Action("Rollback to factory", lambda: None)]),
+        Item("dirty-wah.lv2", "dirty-wah.lv2", True, "8 KB",
+             [Action("Rollback to factory", lambda: None)]),
+        Item("factory-tuner.lv2", "factory-tuner.lv2", False, "factory",
+             [Action("Rollback to factory", lambda: None)]),
+        Item("factory-noise.lv2", "factory-noise.lv2", False, "factory",
+             [Action("Rollback to factory", lambda: None)]),
+    ]
+    fake_data.set_items("factory", "plugins", plugins)
+    fake_data.set_domain_summary("factory", "plugins", "34 MB")
+
+    harness.app._show_domain_picker("factory")
+    harness.inject()
+    snapshot("picker")
+
+    menu = harness._menu()
+    assert menu is not None
+    assert menu._rows[1].right == "34 MB"  # plugins badge
+
+    # Navigate into plugins.
+    harness.select("Plugins")
+    snapshot("plugins_list")
+
+    labels = harness.row_labels()
+    assert "stamped-amp.lv2" in labels
+    assert "dirty-trem.lv2" in labels
+    assert "factory-tuner.lv2" in labels
+    assert len(labels) == 12
 
 
 def test_picker_badge_refreshes_after_domain_action(

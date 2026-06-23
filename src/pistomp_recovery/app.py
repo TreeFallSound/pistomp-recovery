@@ -233,7 +233,8 @@ class RecoveryAppCore:
             items = self._backends.data.domain_items(mode, domain)
             count = len(items)
             has_all: bool = mode == MODE_UPDATES and bool(items) and items[-1].name == "all"
-            right: str = self.badge(mode, count, all_item=has_all)
+            summary: str = self._backends.data.domain_summary(mode, domain)
+            right: str = summary or self.badge(mode, count, all_item=has_all)
             rows.append(
                 Row(
                     (Target(label, lambda m=mode, d=domain: self._show_domain(m, d)),),

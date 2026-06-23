@@ -30,45 +30,6 @@ def is_repo(path: Path) -> bool:
     return (path / ".git").is_dir() or (path / "HEAD").exists()
 
 
-def remote_head(path: Path) -> str | None:
-    """Return the hash of HEAD on origin, or None if unreachable/no remote."""
-    remote: str = git("remote", "get-url", "origin", cwd=path, check=False)
-    if not remote:
-        return None
-    result: str = git("ls-remote", "origin", "HEAD", cwd=path, check=False)
-    if not result:
-        return None
-    return result.split()[0]
-
-
-def fetch_origin(path: Path) -> None:
-    """Fetch the default branch from origin with depth 1."""
-    for branch in ("master", "main"):
-        code: int = subprocess.run(
-            ["git", "fetch", "--depth", "1", "origin", branch],
-            cwd=str(path),
-            capture_output=True,
-            text=True,
-        ).returncode
-        if code == 0:
-            return
-    raise GitError("git fetch --depth 1 origin: no default branch found (tried master, main)")
-
-
-def remote_changed_dirs(path: Path, suffix: str, remote_ref: str = "FETCH_HEAD") -> set[str]:
-    """Return set of top-level directory names ending in *suffix*
-    with changes between HEAD and remote."""
-    output: str = git("diff", "--name-only", "HEAD", remote_ref, cwd=path, check=False)
-    if not output:
-        return set()
-    result: set[str] = set()
-    for line in output.splitlines():
-        top: str = line.split("/", 1)[0]
-        if top.endswith(suffix):
-            result.add(top)
-    return result
-
-
 def init_repo(path: Path) -> None:
     if not (path / ".git").is_dir():
         path.mkdir(parents=True, exist_ok=True)

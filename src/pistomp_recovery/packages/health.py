@@ -34,7 +34,7 @@ def service_last_result(name: str) -> str:
 def service_journal(name: str, lines: int = 10) -> str:
     """Returns recent journal lines for a service."""
     result: subprocess.CompletedProcess[str] = subprocess.run(
-        ["journalctl", "-u", name, "-n", str(lines), "--no-pager"],
+        ["journalctl", "-u", name, "-n", str(lines), "--no-pager", "--output=cat"],
         capture_output=True,
         text=True,
     )

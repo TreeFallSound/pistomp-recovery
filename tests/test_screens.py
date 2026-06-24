@@ -9,6 +9,7 @@ regressions. Run with --snapshot-update to regenerate snapshots.
 from __future__ import annotations
 
 import time
+from pathlib import Path
 from typing import Callable
 
 from pistomp_recovery.app import RecoveryAppCore
@@ -461,7 +462,12 @@ def test_crash_recovery_boot(
             data=fake_data,
             services=services,
         ),
-        BootMode.CRASH_RECOVERY,
+        CrashInfo(
+            boot_mode=BootMode.CRASH_RECOVERY,
+            failed_service=None,
+            crash_log="",
+            service_states={},
+        ),
     )
     app.init()
     screen = app.current_screen()
@@ -504,7 +510,7 @@ def test_crash_screen_snapshot(
             data=fake_data,
             services=services,
         ),
-        BootMode.CRASH_RECOVERY,
+        crash_info,
     )
     app.init()
     harness = AppHarness(app, fake_display)
@@ -531,7 +537,12 @@ def test_resume_starts_main_app(
             data=fake_data,
             services=services,
         ),
-        BootMode.USER_RECOVERY,
+        CrashInfo(
+            boot_mode=BootMode.USER_RECOVERY,
+            failed_service=None,
+            crash_log="",
+            service_states={},
+        ),
     )
     app.init()
     # Navigate to the exit icon (header target) and select it.
@@ -603,7 +614,12 @@ def test_restart_jack_failure(
             data=fake_data,
             services=services,
         ),
-        BootMode.USER_RECOVERY,
+        CrashInfo(
+            boot_mode=BootMode.USER_RECOVERY,
+            failed_service=None,
+            crash_log="",
+            service_states={},
+        ),
     )
     app.init()
     harness = AppHarness(app, fake_display)

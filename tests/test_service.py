@@ -4,15 +4,12 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-import pytest
-
 from pistomp_recovery.service import (
     BootMode,
     _service_crashed,
     diagnose_services,
     get_boot_mode,
 )
-
 
 # ---------------------------------------------------------------------------
 # _service_crashed

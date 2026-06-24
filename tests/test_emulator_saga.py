@@ -22,7 +22,7 @@ from pistomp_recovery.emulator.backends import (
     PygameDisplayBackend,
 )
 from pistomp_recovery.emulator.controls import FakeEncoderInput
-from pistomp_recovery.service import BootMode
+from pistomp_recovery.service import BootMode, CrashInfo
 from pistomp_recovery.ui.widgets.misc import InputEvent
 from tests.conftest import AppHarness
 
@@ -37,7 +37,12 @@ def emulator_harness() -> Iterator[AppHarness]:
 
     app = RecoveryAppCore(
         AppBackends(display=display, input=inp, data=data, services=services),
-        BootMode.USER_RECOVERY,
+        CrashInfo(
+            boot_mode=BootMode.USER_RECOVERY,
+            failed_service=None,
+            crash_log="",
+            service_states={},
+        ),
     )
     app.init()
     harness = AppHarness(app, display)

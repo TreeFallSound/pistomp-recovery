@@ -26,7 +26,6 @@ from PIL import Image  # noqa: E402
 from pistomp_recovery.app import RecoveryAppCore  # noqa: E402
 from pistomp_recovery.backends import AppBackends, DataBackend, DisplayBackend  # noqa: E402
 from pistomp_recovery.items import Item, PackageUpdate  # noqa: E402
-from pistomp_recovery.items import Item, PackageUpdate  # noqa: E402
 from pistomp_recovery.service import BootMode, CrashInfo  # noqa: E402
 from pistomp_recovery.ui.screens.menu_screen import MenuScreen as MS  # noqa: E402
 
@@ -406,7 +405,12 @@ def recovery_app(
             data=fake_data,
             services=fake_services,
         ),
-        fake_services.boot_mode,
+        CrashInfo(
+            boot_mode=fake_services.boot_mode,
+            failed_service=None,
+            crash_log="",
+            service_states={},
+        ),
     )
     app.init()
     harness = AppHarness(app, fake_display)

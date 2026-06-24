@@ -96,7 +96,7 @@ def start_main_app() -> bool:
         subprocess.run(["sudo", "systemctl", "reset-failed", svc], check=False)
 
     for svc in PISTOMP_SERVICES:
-        if svc in ("mod-ala-pi-stomp", "mod-ui"):
+        if svc == "mod-ala-pi-stomp":
             continue
         subprocess.run(["sudo", "systemctl", "start", svc], check=False)
 

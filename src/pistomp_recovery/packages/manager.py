@@ -24,8 +24,15 @@ class PackageManager(Protocol):
         """Return name→version for each tracked package ("not-installed" if absent)."""
         ...
 
+    def sync_db(self) -> bool:
+        """Sync the package DB (apt-get update / pacman -Sy). Returns True on success."""
+        ...
+
     def check_updates(self, names: tuple[str, ...]) -> list[tuple[str, str, str]]:
-        """Sync the package DB then return (name, old_ver, new_ver) for upgradeable packages."""
+        """Return (name, old_ver, new_ver) for upgradeable packages.
+
+        Calls sync_db() lazily if it has not already been called this session.
+        """
         ...
 
     def download(self, names: list[str]) -> bool:
@@ -48,6 +55,9 @@ class PackageManager(Protocol):
 class PacmanManager:
     """PackageManager backed by pacman (Arch Linux / Arch Linux ARM)."""
 
+    def __init__(self) -> None:
+        self._synced: bool = False
+
     def list_installed(self, names: tuple[str, ...]) -> dict[str, str]:
         result: subprocess.CompletedProcess[str] = subprocess.run(
             ["pacman", "-Q"], capture_output=True, text=True, check=False
@@ -59,8 +69,16 @@ class PacmanManager:
                 all_pkgs[parts[0]] = parts[1].strip()
         return {name: all_pkgs.get(name, "not-installed") for name in names}
 
+    def sync_db(self) -> bool:
+        result: subprocess.CompletedProcess[str] = subprocess.run(
+            ["sudo", "pacman", "-Sy"], capture_output=True, check=False
+        )
+        self._synced = True
+        return result.returncode == 0
+
     def check_updates(self, names: tuple[str, ...]) -> list[tuple[str, str, str]]:
-        subprocess.run(["sudo", "pacman", "-Sy"], capture_output=True, check=False)
+        if not self._synced:
+            self.sync_db()
         result: subprocess.CompletedProcess[str] = subprocess.run(
             ["pacman", "-Qu", *names], capture_output=True, text=True, check=False
         )
@@ -136,6 +154,9 @@ class PacmanManager:
 class AptManager:
     """PackageManager backed by apt/dpkg (Debian, Raspbian, Ubuntu)."""
 
+    def __init__(self) -> None:
+        self._synced: bool = False
+
     def list_installed(self, names: tuple[str, ...]) -> dict[str, str]:
         result: subprocess.CompletedProcess[str] = subprocess.run(
             ["dpkg-query", "-W", "-f=${Package}\t${db:Status-Abbrev}\t${Version}\n"],
@@ -153,10 +174,16 @@ class AptManager:
                     installed[pkg] = version
         return {name: installed.get(name, "not-installed") for name in names}
 
-    def check_updates(self, names: tuple[str, ...]) -> list[tuple[str, str, str]]:
-        subprocess.run(
+    def sync_db(self) -> bool:
+        result: subprocess.CompletedProcess[str] = subprocess.run(
             ["sudo", "apt-get", "update", "-qq"], capture_output=True, check=False
         )
+        self._synced = True
+        return result.returncode == 0
+
+    def check_updates(self, names: tuple[str, ...]) -> list[tuple[str, str, str]]:
+        if not self._synced:
+            self.sync_db()
         result: subprocess.CompletedProcess[str] = subprocess.run(
             ["apt", "list", "--upgradeable"],
             capture_output=True,

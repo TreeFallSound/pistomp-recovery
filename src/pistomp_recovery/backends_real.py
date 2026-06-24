@@ -8,6 +8,7 @@ progress callbacks.
 from __future__ import annotations
 
 import logging
+import socket
 import threading
 
 import pygame
@@ -20,7 +21,8 @@ from pistomp_recovery.backends import (
     ProgressCallback,
     ServiceBackend,
 )
-from pistomp_recovery.facet import all_facets, register_default_facets
+from pistomp_recovery.constants import DOMAIN_FACETS
+from pistomp_recovery.facet import Facet, all_facets, register_default_facets
 from pistomp_recovery.hardware.encoder import EncoderInput
 from pistomp_recovery.hardware.lcd import LcdSpi
 from pistomp_recovery.hardware.switch import AdcSwitch
@@ -86,6 +88,24 @@ class RealDataBackend(DataBackend):
 
     def __init__(self, manager: PackageManager) -> None:
         self._manager = manager
+        self._internet: bool | None = None
+
+    def has_internet(self) -> bool:
+        if self._internet is None:
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(2.0)
+                sock.connect(("8.8.8.8", 53))
+                sock.close()
+                self._internet = True
+            except OSError:
+                self._internet = False
+        return self._internet
+
+    def refresh_package_db(self) -> None:
+        if not self.has_internet():
+            return
+        self._manager.sync_db()
 
     def domains(self) -> tuple[tuple[str, str], ...]:
         return (
@@ -95,30 +115,39 @@ class RealDataBackend(DataBackend):
             ("system", "System"),
         )
 
+    def _facets_for(self, domain: str) -> list[Facet]:
+        facets = all_facets()
+        return [f for key in DOMAIN_FACETS.get(domain, ()) if (f := facets.get(key)) is not None]
+
     def domain_items(self, mode: str, domain: str) -> list[Item]:
-        if mode == "updates":
-            # The core synthesizes update actions; backend just lists candidates.
-            return self._update_items(domain)
-
-        facet = all_facets().get(domain)
-        if facet is None:
-            return []
-        try:
-            raw: list[Item] = facet.list_items()
-        except Exception:
-            logger.debug("Could not list %s items", domain, exc_info=True)
-            return []
-
-        wanted: str = "Rollback to stamp" if mode == "checkpoint" else "Rollback to factory"
-        result: list[Item] = []
-        for it in raw:
-            actions = [a for a in it.actions if a.label == wanted]
-            if not actions:
-                continue
-            if mode == "checkpoint" and not it.dirty:
-                continue
-            result.append(Item(it.name, it.label, it.dirty, it.right, actions))
-        return result
+        if mode == "updates" and self._internet is False:
+            has_packages = "packages" in DOMAIN_FACETS.get(domain, ())
+            if has_packages:
+                return [Item("_offline", "No internet", False, "", [])]
+        out: list[Item] = []
+        for facet in self._facets_for(domain):
+            if mode == "updates":
+                try:
+                    out += facet.remote_updates()
+                except Exception:
+                    logger.debug("Could not query %s updates", facet.name, exc_info=True)
+            else:
+                try:
+                    raw: list[Item] = facet.list_items()
+                except Exception:
+                    logger.debug("Could not list %s items", facet.name, exc_info=True)
+                    continue
+                wanted: str = (
+                    "Rollback to stamp" if mode == "checkpoint" else "Rollback to factory"
+                )
+                for it in raw:
+                    actions = [a for a in it.actions if a.label == wanted]
+                    if not actions:
+                        continue
+                    if mode == "checkpoint" and not it.dirty:
+                        continue
+                    out.append(Item(it.name, it.label, it.dirty, it.right, actions))
+        return out
 
     def domain_summary(self, mode: str, domain: str) -> str:
         if domain != "plugins" or mode != "factory":
@@ -132,16 +161,6 @@ class RealDataBackend(DataBackend):
         except Exception:
             logger.debug("Could not compute plugins cache summary", exc_info=True)
             return ""
-
-    def _update_items(self, domain: str) -> list[Item]:
-        facet = all_facets().get(domain)
-        if facet is None:
-            return []
-        try:
-            return facet.remote_updates()
-        except Exception:
-            logger.debug("Could not query %s updates", domain, exc_info=True)
-            return []
 
     def install_packages(
         self,

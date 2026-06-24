@@ -64,6 +64,23 @@ class DataBackend(Protocol):
         """
         return ""
 
+    def has_internet(self) -> bool:
+        """Return True if the device can reach the internet.
+
+        Used before entering the Updates picker to decide whether to attempt a
+        package-DB sync.  Implementations should be fast (TCP probe with a
+        short timeout).  The default returns True so non-network backends
+        behave as if connectivity is always present.
+        """
+        return True
+
+    def refresh_package_db(self) -> None:
+        """Sync the distro package database (apt-get update / pacman -Sy).
+
+        Called from a background thread by the UI before loading the Updates
+        picker.  The default is a no-op.
+        """
+
     def install_packages(
         self,
         packages: list[str],

@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
-from pistomp_recovery.constants import PACKAGE_SERVICES, PISTOMP_SERVICES, services_for_packages
+from pistomp_recovery.constants import (
+    DOMAIN_FACETS,
+    FACET_NAMES,
+    PACKAGE_SERVICES,
+    PISTOMP_SERVICES,
+    services_for_packages,
+)
 
 
 class TestPackageServices:
@@ -36,3 +42,33 @@ class TestPackageServices:
         from pistomp_recovery.constants import PISTOMP_PACKAGES
         for pkg in PISTOMP_PACKAGES:
             assert pkg in PACKAGE_SERVICES
+
+
+class TestDomainFacets:
+    def test_every_facet_in_map_is_registered(self) -> None:
+        """Every facet name in DOMAIN_FACETS must appear in FACET_NAMES."""
+        all_mapped: set[str] = {f for facets in DOMAIN_FACETS.values() for f in facets}
+        assert all_mapped <= set(FACET_NAMES), (
+            f"DOMAIN_FACETS references unknown facets: {all_mapped - set(FACET_NAMES)}"
+        )
+
+    def test_every_registered_facet_is_reachable(self) -> None:
+        """Every facet in FACET_NAMES must be reachable from exactly one domain.
+
+        This catches the original bug where the packages facet was registered
+        but never wired to a domain, making it invisible to the UI.
+        """
+        all_mapped: set[str] = {f for facets in DOMAIN_FACETS.values() for f in facets}
+        orphans = set(FACET_NAMES) - all_mapped
+        assert not orphans, f"Facets registered but reachable from no domain: {orphans}"
+
+    def test_no_facet_appears_in_multiple_domains(self) -> None:
+        seen: set[str] = set()
+        for domain, facets in DOMAIN_FACETS.items():
+            for f in facets:
+                assert f not in seen, f"Facet {f!r} appears in multiple domains (second: {domain!r})"
+                seen.add(f)
+
+    def test_all_domains_have_at_least_one_facet(self) -> None:
+        for domain, facets in DOMAIN_FACETS.items():
+            assert facets, f"Domain {domain!r} has no facets"

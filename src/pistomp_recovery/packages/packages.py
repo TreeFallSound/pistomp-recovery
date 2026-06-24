@@ -66,7 +66,8 @@ class PackageFacet:
         return self._manager.check_updates(self._packages)
 
     def remote_updates(self) -> list[Item]:
-        return [
+        updates = self.available_updates()
+        items = [
             Item(
                 name=name,
                 label=f"{name} {old_ver}",
@@ -74,8 +75,17 @@ class PackageFacet:
                 right=f"↑{new_ver}",
                 actions=[],
             )
-            for name, old_ver, new_ver in self.available_updates()
+            for name, old_ver, new_ver in updates
         ]
+        if len(items) > 1:
+            items.append(Item(
+                name="all",
+                label="Update All",
+                dirty=False,
+                right=f"{len(items)} pkgs",
+                actions=[],
+            ))
+        return items
 
     def list_items(self) -> list[Item]:
         self.init()

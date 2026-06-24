@@ -193,6 +193,14 @@ class RecoveryAppCore:
             Row(
                 (
                     Target(
+                        "Updates",
+                        lambda: self._show_domain_picker(MODE_UPDATES),
+                    ),
+                )
+            ),
+            Row(
+                (
+                    Target(
                         "Reset to Checkpoint",
                         lambda: self._show_domain_picker(MODE_CHECKPOINT),
                     ),
@@ -206,14 +214,6 @@ class RecoveryAppCore:
                     ),
                 )
             ),
-            Row(
-                (
-                    Target(
-                        "Updates",
-                        lambda: self._show_domain_picker(MODE_UPDATES),
-                    ),
-                )
-            ),
             Row(prefix="---", separator=True),
             Row((Target("Reboot", services.reboot, confirm="Reboot now?"),)),
             Row((Target("Power Off", services.power_off, confirm="Power off now?"),)),
@@ -221,13 +221,15 @@ class RecoveryAppCore:
         self._push_menu(title, rows, back=False)
 
     def _show_domain_picker(self, mode: str) -> None:
+        if mode == MODE_UPDATES:
+            self._show_updates_picker()
+            return
         rows: list[Row] = []
         for domain, label in self._backends.data.domains():
             items = self._backends.data.domain_items(mode, domain)
-            count = len(items)
-            has_all: bool = mode == MODE_UPDATES and bool(items) and items[-1].name == "all"
+            count = sum(1 for it in items if it.name != "all")
             summary: str = self._backends.data.domain_summary(mode, domain)
-            right: str = summary or self.badge(mode, count, all_item=has_all)
+            right: str = summary or self.badge(mode, count)
             rows.append(
                 Row(
                     (Target(label, lambda m=mode, d=domain: self._show_domain(m, d)),),
@@ -242,14 +244,29 @@ class RecoveryAppCore:
             reload_callback=lambda m=mode: self._refresh_domain_picker(m),
         )
 
+    def _show_updates_picker(self) -> None:
+        picker = self._push_menu(
+            _MODE_TITLES[MODE_UPDATES],
+            [],
+            back=True,
+            mode=MODE_UPDATES,
+            reload_callback=lambda: self._refresh_domain_picker(MODE_UPDATES),
+        )
+        picker.set_progress("Checking for updates...", 0.0, "Checking for updates...", done=False)
+        self._dirty = True
+
+        def _run() -> None:
+            self._backends.data.refresh_package_db()
+            self._refresh_domain_picker(MODE_UPDATES, picker=picker)
+            picker.clear_progress()
+            self._dirty = True
+
+        threading.Thread(target=_run, daemon=True).start()
+
     @staticmethod
-    def badge(mode: str, count: int, all_item: bool = False) -> str:
+    def badge(mode: str, count: int) -> str:
         if count == 0:
             return ""
-        if mode == MODE_UPDATES and all_item:
-            count = max(0, count - 1)
-            if count == 0:
-                return ""
         return f"{count} available" if mode == MODE_UPDATES else f"{count} changed"
 
     def _show_domain(self, mode: str, domain: str) -> None:
@@ -259,7 +276,18 @@ class RecoveryAppCore:
             empty: str = "No updates" if mode == MODE_UPDATES else "Nothing to reset"
             rows: list[Row] = [Row((Target(empty, lambda: None, enabled=False),))]
         else:
-            rows = [Row((self._item_target(it, mode, domain),), right=it.right) for it in items]
+            pkg_names = [it.name for it in items if it.name != "all"]
+            rows = []
+            for it in items:
+                if it.name == "all":
+                    target = Target(
+                        it.label,
+                        lambda names=pkg_names: self._install_packages(names),
+                        confirm=f"Update all {len(pkg_names)} packages?",
+                    )
+                else:
+                    target = self._item_target(it, mode, domain)
+                rows.append(Row((target,), right=it.right))
         self._push_menu(
             domain_label,
             rows,
@@ -386,9 +414,9 @@ class RecoveryAppCore:
         rows: list[Row] = []
         for domain, label in self._backends.data.domains():
             items = self._backends.data.domain_items(mode, domain)
-            count: int = len(items)
-            has_all: bool = mode == MODE_UPDATES and bool(items) and items[-1].name == "all"
-            right: str = self.badge(mode, count, all_item=has_all)
+            count: int = sum(1 for it in items if it.name != "all")
+            summary: str = self._backends.data.domain_summary(mode, domain)
+            right: str = summary or self.badge(mode, count)
             rows.append(
                 Row(
                     (Target(label, lambda m=mode, d=domain: self._show_domain(m, d)),),

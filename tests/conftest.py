@@ -307,6 +307,22 @@ class AppHarness:
             self.app._backends.display.update(self.app.surface)
             self.app._dirty = False
 
+    def drain(self, timeout: float = 3.0) -> None:
+        """Wait for any in-progress background work to finish.
+
+        Polls until the current menu screen leaves PROGRESS state (meaning the
+        background thread called clear_progress), then does a final redraw.
+        """
+        from pistomp_recovery.ui.screens.menu_screen import MenuScreen
+
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            screen = self.app.current_screen()
+            if not isinstance(screen, MenuScreen) or screen._state != "PROGRESS":
+                break
+            time.sleep(0.05)
+        self.inject()
+
     def redraw(self) -> None:
         """Force a draw + frame capture (e.g. after a programmatic state change)."""
         self.app.draw_current_screen()

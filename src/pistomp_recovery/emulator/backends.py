@@ -27,12 +27,13 @@ from pistomp_recovery.backends import (
     ServiceBackend,
 )
 from pistomp_recovery.constants import (
+    DOMAIN_FACETS,
     LCD_HEIGHT,
     LCD_WIDTH,
     PISTOMP_PACKAGES,
 )
 from pistomp_recovery.emulator.controls import FakeEncoderInput, FakeInputManager
-from pistomp_recovery.facet import RollbackTarget, clear_facets, register_facet
+from pistomp_recovery.facet import Facet, RollbackTarget, clear_facets, register_facet
 from pistomp_recovery.file_facet import FileFacet
 from pistomp_recovery.items import Action, Item, PackageUpdate
 from pistomp_recovery.pedalboards import PedalboardFacet
@@ -159,7 +160,7 @@ class EmulatorPackageFacet:
         self._updates = [u for u in self._updates if u.name not in packages]
 
     def remote_updates(self) -> list[Item]:
-        return [
+        items = [
             Item(
                 u.name,
                 f"{u.name} {u.old_version}",
@@ -169,6 +170,15 @@ class EmulatorPackageFacet:
             )
             for u in self._updates
         ]
+        if len(items) > 1:
+            items.append(Item(
+                name="all",
+                label="Update All",
+                dirty=False,
+                right=f"{len(items)} pkgs",
+                actions=[],
+            ))
+        return items
 
     def install(self, pkg: str, new_version: str) -> None:
         """Simulate installing a package."""
@@ -214,8 +224,8 @@ class EmulatorDataBackend(DataBackend):
             source_resolver=lambda f: self._config_dir / f,
             display_name_resolver=lambda f: f,
         )
-        self._system_facet = FileFacet(
-            name="system",
+        self._boot_facet = FileFacet(
+            name="boot",
             repo_dir=self._root / "system.git",
             files=("config.txt", "jackdrc"),
             source_resolver=lambda f: self._system_dir / f,
@@ -224,13 +234,13 @@ class EmulatorDataBackend(DataBackend):
         self._pedalboard_facet = PedalboardFacet(self._pedalboards_dir)
         self._package_facet = EmulatorPackageFacet()
         register_facet("config", self._config_facet)
-        register_facet("system", self._system_facet)
+        register_facet("boot", self._boot_facet)
         register_facet("pedalboards", self._pedalboard_facet)
         register_facet("packages", self._package_facet)
 
-        # Stamp config and system so checkpoint mode has a stamp to roll back to.
+        # Stamp config and boot so checkpoint mode has a stamp to roll back to.
         self._config_facet.stamp()
-        self._system_facet.stamp()
+        self._boot_facet.stamp()
 
         # Modify some pedalboards and stamp them, simulating pi-stomp having
         # loaded them with user changes.  The stamp captures the modified state
@@ -252,6 +262,12 @@ class EmulatorDataBackend(DataBackend):
     def cleanup(self) -> None:
         shutil.rmtree(self._root, ignore_errors=True)
 
+    def has_internet(self) -> bool:
+        return True
+
+    def refresh_package_db(self) -> None:
+        pass
+
     def domains(self) -> tuple[tuple[str, str], ...]:
         return (
             ("pedalboards", "Pedalboards"),
@@ -260,45 +276,36 @@ class EmulatorDataBackend(DataBackend):
             ("system", "System"),
         )
 
+    def _facets_for(self, domain: str) -> list[Facet]:
+        from pistomp_recovery.facet import all_facets
+        facets = all_facets()
+        return [f for key in DOMAIN_FACETS.get(domain, ()) if (f := facets.get(key)) is not None]
+
     def domain_items(self, mode: str, domain: str) -> list[Item]:
-        if domain == "plugins":
-            return []
-        if mode == "updates":
-            return self._update_items(domain)
-
-        from pistomp_recovery.facet import all_facets
-
-        facet = all_facets().get(domain)
-        if facet is None:
-            return []
-        try:
-            raw: list[Item] = facet.list_items()
-        except Exception:
-            logger.debug("Could not list %s items", domain, exc_info=True)
-            return []
-
-        wanted: str = "Rollback to stamp" if mode == "checkpoint" else "Rollback to factory"
-        result: list[Item] = []
-        for it in raw:
-            actions = [a for a in it.actions if a.label == wanted]
-            if not actions:
-                continue
-            if mode == "checkpoint" and not it.dirty:
-                continue
-            result.append(Item(it.name, it.label, it.dirty, it.right, actions))
-        return result
-
-    def _update_items(self, domain: str) -> list[Item]:
-        from pistomp_recovery.facet import all_facets
-
-        facet = all_facets().get(domain)
-        if facet is None:
-            return []
-        try:
-            return facet.remote_updates()
-        except Exception:
-            logger.debug("Could not query %s updates", domain, exc_info=True)
-            return []
+        out: list[Item] = []
+        for facet in self._facets_for(domain):
+            if mode == "updates":
+                try:
+                    out += facet.remote_updates()
+                except Exception:
+                    logger.debug("Could not query %s updates", facet.name, exc_info=True)
+            else:
+                try:
+                    raw: list[Item] = facet.list_items()
+                except Exception:
+                    logger.debug("Could not list %s items", facet.name, exc_info=True)
+                    continue
+                wanted: str = (
+                    "Rollback to stamp" if mode == "checkpoint" else "Rollback to factory"
+                )
+                for it in raw:
+                    actions = [a for a in it.actions if a.label == wanted]
+                    if not actions:
+                        continue
+                    if mode == "checkpoint" and not it.dirty:
+                        continue
+                    out.append(Item(it.name, it.label, it.dirty, it.right, actions))
+        return out
 
     def install_packages(
         self,

@@ -28,7 +28,7 @@ LCD_HEIGHT: int = 240
 FACTORY_BRANCH: str = "factory"
 DEVICE_BRANCH: str = "device"
 
-FACET_NAMES: tuple[str, ...] = ("config", "pedalboards", "plugins", "packages", "system")
+FACET_NAMES: tuple[str, ...] = ("config", "pedalboards", "plugins", "packages", "boot")
 
 PISTOMP_PACKAGES: tuple[str, ...] = (
     "jack2-pistomp",
@@ -61,6 +61,15 @@ DOMAIN_PEDALBOARDS: str = "pedalboards"
 DOMAIN_PLUGINS: str = "plugins"
 DOMAIN_CONFIG: str = "config"
 DOMAIN_SYSTEM: str = "system"
+
+# Maps each UI domain to the ordered list of facets that back it.
+# This is the single source of truth used by all backends (real, emulator).
+DOMAIN_FACETS: dict[str, tuple[str, ...]] = {
+    DOMAIN_PEDALBOARDS: ("pedalboards",),
+    DOMAIN_PLUGINS:     ("plugins",),
+    DOMAIN_CONFIG:      ("config", "boot"),
+    DOMAIN_SYSTEM:      ("packages",),
+}
 
 PACKAGE_DOMAIN: dict[str, str] = {pkg: DOMAIN_SYSTEM for pkg in PISTOMP_PACKAGES}
 

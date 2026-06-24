@@ -28,12 +28,11 @@ from tests.conftest import (
 )
 
 
-def test_badge_excludes_update_all() -> None:
-    assert RecoveryAppCore.badge("updates", 3, all_item=True) == "2 available"
-    assert RecoveryAppCore.badge("updates", 2, all_item=False) == "2 available"
-    assert RecoveryAppCore.badge("updates", 1, all_item=True) == ""
-    assert RecoveryAppCore.badge("updates", 0, all_item=False) == ""
-    assert RecoveryAppCore.badge("checkpoint", 3, all_item=True) == "3 changed"
+def test_badge() -> None:
+    assert RecoveryAppCore.badge("updates", 2) == "2 available"
+    assert RecoveryAppCore.badge("updates", 0) == ""
+    assert RecoveryAppCore.badge("checkpoint", 3) == "3 changed"
+    assert RecoveryAppCore.badge("checkpoint", 0) == ""
 
 
 def test_domain_screen_refreshes_after_successful_action(
@@ -64,9 +63,9 @@ def test_domain_screen_refreshes_after_successful_action(
     assert harness.row_labels() == [
         "Restart Jack",
         "Restart MOD",
+        "Updates",
         "Reset to Checkpoint",
         "Factory Reset",
-        "Updates",
         "Reboot",
         "Power Off",
     ]

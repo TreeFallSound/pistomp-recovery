@@ -141,12 +141,89 @@ class TestFactoryResetConfig:
         )
 
 
+class TestSystemDomainPackages:
+    """System domain now maps to the packages facet."""
+
+    def test_updates_shows_package_updates_under_system(
+        self, emulator_harness: AppHarness
+    ) -> None:
+        """Updates → System shows package updates (previously orphaned)."""
+        harness = emulator_harness
+
+        harness.select("Updates")
+        harness.drain()
+        harness.select("System")
+        harness.inject()
+        rows = harness.row_labels()
+        assert any("jack2-pistomp" in r for r in rows), f"jack2-pistomp not in System updates: {rows}"
+        assert any("mod-ui" in r for r in rows), f"mod-ui not in System updates: {rows}"
+
+    def test_updates_config_domain_shows_no_updates(self, emulator_harness: AppHarness) -> None:
+        """Config domain shows no updates (file facets have no remote updates)."""
+        harness = emulator_harness
+
+        harness.select("Updates")
+        harness.drain()
+        harness.select("Config")
+        harness.inject()
+        rows = harness.row_labels()
+        # Only "No updates" placeholder row expected
+        assert any("No updates" in r for r in rows), f"expected 'No updates' in Config updates: {rows}"
+
+    def test_factory_reset_system_shows_package_items(
+        self, emulator_harness: AppHarness
+    ) -> None:
+        """Factory Reset → System shows package rollback items."""
+        harness = emulator_harness
+
+        harness.select("Factory Reset")
+        harness.inject()
+        harness.select("System")
+        harness.inject()
+        rows = harness.row_labels()
+        assert any("jack2-pistomp" in r for r in rows), (
+            f"package items not in System factory reset: {rows}"
+        )
+
+    def test_factory_reset_boot_file_action_targets_correct_facet(
+        self, emulator_harness: AppHarness
+    ) -> None:
+        """Factory-resetting a boot file from Config restores that file,
+        not any config-facet file."""
+        harness = emulator_harness
+        data = harness.app._backends.data
+        assert isinstance(data, EmulatorDataBackend)
+
+        config_txt = data._system_dir / "config.txt"
+        settings_yml = data._config_dir / "settings.yml"
+
+        harness.select("Factory Reset")
+        harness.inject()
+        harness.select("Config")
+        harness.inject()
+
+        harness.select("config.txt")
+        harness.inject()
+        harness.inject(InputEvent.RIGHT, InputEvent.CLICK)  # Yes
+        harness.inject(InputEvent.CLICK)                     # dismiss done
+        harness.inject()
+
+        assert config_txt.read_text() == "# factory config.txt\n", (
+            f"config.txt not restored: {config_txt.read_text()!r}"
+        )
+        # settings.yml must NOT be affected — action was bound to the boot facet
+        assert settings_yml.read_text() == "# changed settings\n", (
+            "settings.yml was incorrectly modified by a boot-facet rollback"
+        )
+
+
 class TestCheckpointEmptyWhenClean:
     """Checkpoint mode shows nothing when all files match stamps."""
 
     def test_checkpoint_shows_dirty_settings(self, emulator_harness: AppHarness) -> None:
         """The emulator starts with settings.yml and config.txt dirty (changed
-        after factory snapshots) so checkpoint mode shows them."""
+        after factory snapshots) so checkpoint mode shows them.
+        Config domain now includes both config and boot facet files."""
         harness = emulator_harness
         harness.select("Reset to Checkpoint")
         harness.inject()
@@ -156,6 +233,31 @@ class TestCheckpointEmptyWhenClean:
         rows = harness.row_labels()
         assert "settings.yml *" in rows, f"expected settings.yml * in {rows}"
         assert "default_config.yml *" in rows, f"expected default_config.yml * in {rows}"
+        # config.txt is a boot-facet file now shown under Config
+        assert "config.txt *" in rows, f"expected config.txt * in {rows}"
+
+    def test_checkpoint_boot_file_in_config_domain(self, emulator_harness: AppHarness) -> None:
+        """Boot-facet files (config.txt) now appear under Config domain."""
+        harness = emulator_harness
+        data = harness.app._backends.data
+        assert isinstance(data, EmulatorDataBackend)
+
+        # config.txt is dirty in the emulator (changed after stamp)
+        config_txt = data._system_dir / "config.txt"
+        assert config_txt.read_text() == "# changed config.txt\n"
+
+        harness.select("Factory Reset")
+        harness.inject()
+        harness.select("Config")
+        harness.inject()
+        rows = harness.row_labels()
+        assert any("config.txt" in r for r in rows), f"config.txt not under Config: {rows}"
+
+        # System domain maps to packages only — verify via backend directly
+        system_items = data.domain_items("factory", "system")
+        assert not any(it.name == "config.txt" for it in system_items), (
+            "config.txt leaked into System domain"
+        )
 
     def test_checkpoint_pedalboards_shows_stamped_dirty(
         self, emulator_harness: AppHarness

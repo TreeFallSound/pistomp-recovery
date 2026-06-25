@@ -51,7 +51,7 @@ PISTOMP_PACKAGES: tuple[str, ...] = (
     "browsepy",
     "ffmpeg-pistomp",
     "touchosc2midi",
-    "lg",
+    "lg-pistomp",
 )
 
 # Debian package names mirror the Arch names — they're all custom packages in
@@ -113,7 +113,7 @@ PACKAGE_SERVICES: dict[str, list[str]] = {
     "browsepy": ["browsepy"],
     "ffmpeg-pistomp": [],
     "touchosc2midi": ["mod-touchosc2midi"],
-    "lg": [],
+    "lg-pistomp": [],
 }
 
 

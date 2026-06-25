@@ -70,9 +70,9 @@ DOMAIN_SYSTEM: str = "system"
 # This is the single source of truth used by all backends (real, emulator).
 DOMAIN_FACETS: dict[str, tuple[str, ...]] = {
     DOMAIN_PEDALBOARDS: ("pedalboards",),
-    DOMAIN_PLUGINS:     ("plugins",),
-    DOMAIN_CONFIG:      ("config", "boot"),
-    DOMAIN_SYSTEM:      ("packages",),
+    DOMAIN_PLUGINS: ("plugins",),
+    DOMAIN_CONFIG: ("config", "boot"),
+    DOMAIN_SYSTEM: ("packages",),
 }
 
 PACKAGE_DOMAIN: dict[str, str] = {pkg: DOMAIN_SYSTEM for pkg in PISTOMP_PACKAGES}
@@ -89,6 +89,7 @@ PISTOMP_SERVICES: tuple[str, ...] = (
     "mod-ala-pi-stomp",
     "mod-amidithru",
     "browsepy",
+    "mod-touchosc2midi",
 )
 
 PACKAGE_SERVICES: dict[str, list[str]] = {
@@ -119,13 +120,14 @@ PACKAGE_SERVICES_DEBIAN: dict[str, list[str]] = PACKAGE_SERVICES
 
 def services_for_packages(packages: list[str]) -> list[str]:
     seen: set[str] = set()
-    result: list[str] = []
+    extras: list[str] = []
     chain: list[str] = list(PISTOMP_SERVICES)
     for pkg in packages:
         svcs: list[str] = PACKAGE_SERVICES.get(pkg, chain)
         for svc in svcs:
             if svc not in seen:
                 seen.add(svc)
-                result.append(svc)
+                if svc not in chain:
+                    extras.append(svc)
     ordered: list[str] = [svc for svc in chain if svc in seen]
-    return ordered
+    return ordered + extras

@@ -22,14 +22,13 @@ from pistomp_recovery.backends import (
     ProgressCallback,
     ServiceBackend,
 )
-from pistomp_recovery.constants import DOMAIN_FACETS
+from pistomp_recovery.constants import DOMAIN_FACETS, services_for_packages
 from pistomp_recovery.facet import Facet, all_facets, register_default_facets
 from pistomp_recovery.hardware.encoder import EncoderInput
 from pistomp_recovery.hardware.lcd import LcdSpi
 from pistomp_recovery.hardware.switch import AdcSwitch
 from pistomp_recovery.items import Item
 from pistomp_recovery.packages.manager import PackageManager, detect_package_manager
-from pistomp_recovery.packages.packages import stamp_packages
 from pistomp_recovery.service import (
     CrashInfo,
     diagnose_crash,
@@ -189,18 +188,25 @@ class RealDataBackend(DataBackend):
                 result.append(False)
                 return
 
-            progress("Saving snapshot...", 0.9, "Saving snapshot...", False)
-            try:
-                stamp_packages()
-            except Exception:
-                logger.exception("Stamp after update failed")
+            to_restart = [
+                svc
+                for svc in services_for_packages(packages)
+                if svc != "pistomp-recovery"
+                and subprocess.run(
+                    ["systemctl", "is-active", "--quiet", svc], check=False
+                ).returncode
+                == 0
+            ]
+            for svc in to_restart:
+                progress(f"Restarting {svc}...", 0.95, f"Restarting {svc}...", False)
+                subprocess.run(["sudo", "systemctl", "restart", svc], check=False)
 
             if "pistomp-recovery" in packages:
                 progress("Restarting recovery...", 1.0, "Restarting recovery...", False)
                 subprocess.run(["sudo", "systemctl", "restart", "pistomp-recovery"], check=False)
                 return
 
-            progress("Update complete", 1.0, "Done. Exit (►) to restart pi-Stomp.", True)
+            progress("Update complete", 1.0, "Done. Click to continue.", True)
             result.append(True)
 
         threading.Thread(target=_run, daemon=True).start()

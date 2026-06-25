@@ -48,5 +48,6 @@ python_functions = ["test_*"]
 [tool.pyright]
 pythonVersion = "3.12"
 typeCheckingMode = "strict"
+include = ["src", "tests"]
 reportMissingImports = false
 reportMissingModuleSource = false

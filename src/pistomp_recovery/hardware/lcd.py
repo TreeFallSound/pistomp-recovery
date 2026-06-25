@@ -1,10 +1,13 @@
-# pyright: reportUnknownMemberType=false, reportUnknownVariableType=false
+# pyright: reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnknownArgumentType=false
 from __future__ import annotations
 
 import logging
+import os
 import threading
 from pathlib import Path
 from typing import TYPE_CHECKING
+
+import numpy
 
 from pistomp_recovery.constants import INIT_STAMP, LCD_HEIGHT, LCD_WIDTH
 from pistomp_recovery.spi_timing import transfer_ms as spi_transfer_ms
@@ -16,12 +19,35 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _read_spidev_bufsiz() -> int:
+    try:
+        with open("/sys/module/spidev/parameters/bufsiz", "r") as f:
+            return int(f.read().strip())
+    except Exception:
+        return 4096
+
+
+SPIDEV_BUFSIZ: int = _read_spidev_bufsiz()
+
+
 class LcdSpi:
+    """ILI9341 SPI LCD driver, ported from ``../pi-stomp/uilib/lcd_ili9341.py``.
+
+    The panel is driven landscape-native: ``__init__`` rewrites MADCTL to
+    ``0xE8`` (flip) or ``0x28`` (non-flip) so a 320x240 pygame surface maps
+    straight onto the panel address window with no per-push rotation or
+    coordinate swap. Full and partial pushes share one code path — subsurface
+    -> RGB565 pack via numpy -> ``_block_fast`` (single SPI lock/CS, ``os.write``
+    chunked by ``SPIDEV_BUFSIZ``). This is the proven pi-stomp implementation;
+    do not reinvent a blit path here.
+    """
+
     def __init__(self, baudrate: int = 80_000_000, flip: bool = True) -> None:
         self._baudrate: int = baudrate
         self._flip: bool = flip
         self._disp: object | None = None
         self._lock: threading.Lock = threading.Lock()
+        self._pixels: "object | None" = None  # numpy.ndarray, allocated in init()
 
     @property
     def width(self) -> int:
@@ -44,11 +70,6 @@ class LcdSpi:
             logger.error("LCD dependencies not available (board, adafruit_rgb_display)")
             raise
 
-        # Speed up per-frame transfers before the first blit (see driver_patch).
-        from pistomp_recovery.hardware import driver_patch
-
-        driver_patch.apply()
-
         spi = board.SPI()  # type: ignore[union-attr]
         cs_pin = digitalio.DigitalInOut(board.CE0)  # type: ignore[union-attr]
         dc_pin = digitalio.DigitalInOut(board.D6)  # type: ignore[union-attr]
@@ -64,10 +85,22 @@ class LcdSpi:
             baudrate=self._baudrate,
         )
 
+        # Bypass Adafruit's six-lock-per-block write with a single-lock/CS path.
+        self._disp._block = self._block_fast  # type: ignore[union-attr]
+
         if not self.has_system_splash:
+            self.clear()  # full-panel black while still in Adafruit's portrait MADCTL
             self._create_stamp()
 
-        logger.info("LCD initialized: %dx%d", LCD_WIDTH, LCD_HEIGHT)
+        # Drive the panel landscape-native so 320x240 surfaces push row-major
+        # with no rotation. Adafruit's init leaves MADCTL=0x48 (portrait);
+        # re-assert lcd-splash's 0xE8 (MY|MX|MV|BGR) for flip, or 0x28
+        # (MV|BGR, no mirror) for non-flip.
+        madctl: int = 0x28 if self._flip else 0xE8
+        self._disp.write(0x36, bytes([madctl]))  # type: ignore[union-attr]
+
+        self._pixels = numpy.empty((LCD_HEIGHT, LCD_WIDTH, 2), dtype=numpy.uint8)
+        logger.info("LCD initialized: %dx%d (flip=%s)", LCD_WIDTH, LCD_HEIGHT, self._flip)
 
     def _create_stamp(self) -> None:
         try:
@@ -75,73 +108,111 @@ class LcdSpi:
         except OSError:
             pass
 
+    def _block_fast(self, x0: int, y0: int, x1: int, y1: int, data: bytes | None = None) -> None:
+        """Single-lock/CS block write, ported verbatim from pi-stomp.
+
+        Bypasses ``adafruit_rgb_display``'s per-step lock/CS dance and writes
+        column-set / page-set / RAM-write commands directly over ``os.write``,
+        chunked to the spidev buffer size. ``data=None`` falls back to the
+        upstream ``DisplaySPI._block`` (used only by ``clear``/``fill``).
+        """
+        if data is None:
+            import adafruit_rgb_display.rgb as rgb  # type: ignore[import-untyped]
+
+            return rgb.DisplaySPI._block(self._disp, x0, y0, x1, y1, data)  # type: ignore[union-attr]
+
+        disp = self._disp
+        assert disp is not None
+        spi_dev = disp.spi_device  # type: ignore[union-attr]
+        spi = spi_dev.spi  # type: ignore[union-attr]
+        cs = spi_dev.chip_select  # type: ignore[union-attr]
+        dc = disp.dc_pin  # type: ignore[union-attr]
+        pure_spi = spi._spi._spi  # type: ignore[union-attr]
+        fd = pure_spi.handle  # type: ignore[union-attr]
+
+        while not spi.try_lock():  # type: ignore[union-attr]
+            import time
+
+            time.sleep(0)
+
+        try:
+            spi.configure(  # type: ignore[union-attr]
+                baudrate=spi_dev.baudrate,  # type: ignore[union-attr]
+                polarity=spi_dev.polarity,  # type: ignore[union-attr]
+                phase=spi_dev.phase,  # type: ignore[union-attr]
+            )
+
+            if cs:
+                cs.value = spi_dev.cs_active_value  # type: ignore[union-attr]
+
+            dc.value = 0
+            os.write(fd, bytes([disp._COLUMN_SET]))  # type: ignore[union-attr]
+            dc.value = 1
+            os.write(fd, disp._encode_pos(x0 + disp._X_START, x1 + disp._X_START))  # type: ignore[union-attr]
+
+            dc.value = 0
+            os.write(fd, bytes([disp._PAGE_SET]))  # type: ignore[union-attr]
+            dc.value = 1
+            os.write(fd, disp._encode_pos(y0 + disp._Y_START, y1 + disp._Y_START))  # type: ignore[union-attr]
+
+            dc.value = 0
+            os.write(fd, bytes([disp._RAM_WRITE]))  # type: ignore[union-attr]
+            dc.value = 1
+
+            mv = memoryview(data)
+            for i in range(0, len(data), SPIDEV_BUFSIZ):
+                os.write(fd, mv[i : i + SPIDEV_BUFSIZ])
+        finally:
+            if cs:
+                cs.value = not spi_dev.cs_active_value  # type: ignore[union-attr]
+            spi.unlock()  # type: ignore[union-attr]
+
     def update(self, surface: pygame.Surface, rects: list[Box] | None = None) -> None:
+        """Push (a sub-rect of) the composed pygame surface to the LCD.
+
+        Converts surface -> RGB565 via numpy and writes via ``_block_fast``.
+        The panel runs landscape-native (MADCTL set in ``init``) so surface
+        coords map straight to the panel address window — no rotation, no
+        coordinate swap, one path for full and partial pushes.
+        """
         with self._lock:
             if self._disp is None:
                 return
 
+            import pygame
+
             dirty: Box | None = union_rects(rects) if rects else None
             if dirty is not None and dirty.is_empty():
                 return
-
             if dirty is None:
-                self._push_full(surface)
-            else:
-                self._push_rect(surface, dirty)
+                dirty = Box(0, 0, LCD_WIDTH, LCD_HEIGHT)
 
-    def _push_full(self, surface: pygame.Surface) -> None:
-        """Whole-frame push (legacy path)."""
-        import pygame
-        from PIL import Image  # type: ignore[import-untyped]
+            img_width, img_height = surface.get_size()
+            x1, y1 = dirty.x, dirty.y
+            x1 = max(0, min(x1, img_width))
+            y1 = max(0, min(y1, img_height))
+            x2 = max(x1, min(dirty.right, img_width))
+            y2 = max(y1, min(dirty.bottom, img_height))
+            if x2 <= x1 or y2 <= y1:
+                return
 
-        img: pygame.Surface = pygame.transform.rotate(
-            surface, 180 if self._flip else 0
-        )
-        rgb: bytes = pygame.image.tostring(img, "RGB")
-        pil_img: Image.Image = Image.frombytes("RGB", (LCD_WIDTH, LCD_HEIGHT), rgb)
-        self._disp.image(pil_img, 270 if self._flip else 90)  # type: ignore[union-attr]
+            cropped = x1 != 0 or y1 != 0 or x2 != img_width or y2 != img_height
+            sub = surface.subsurface(pygame.Rect(x1, y1, x2 - x1, y2 - y1)) if cropped else surface
 
-    def _push_rect(self, surface: pygame.Surface, rect: Box) -> None:
-        """Partial push: ship only the dirty sub-rect over SPI.
+            sw, sh = sub.get_size()
 
-        Coordinate transform (same formula for flip and non-flip): a surface
-        rect ``(sx, sy, sw, sh)`` maps to panel address window
-        ``(LCD_HEIGHT - sy - sh, sx, sh, sw)`` because the rotation chain
-        (pygame 180° + PIL 270° CCW, or PIL 90° CCW alone) swaps the axes.
-        The panel is driven in its native portrait orientation (240×320);
-        ``disp.image(sub, rotation, x, y)`` handles the per-rect rotation and
-        calls ``_block`` with the windowed coordinates.
-        """
-        import pygame
-        from PIL import Image  # type: ignore[import-untyped]
+            arr = pygame.surfarray.pixels3d(sub).transpose(1, 0, 2)
+            pix = self._pixels[:sh, :sw]  # type: ignore[index]
+            g = arr[:, :, 1]
+            pix[:, :, 0] = (arr[:, :, 0] & 0xF8) | (g >> 5)
+            pix[:, :, 1] = ((g & 0x1C) << 3) | (arr[:, :, 2] >> 3)
+            pixels_bytes: bytes = pix.tobytes()
 
-        sx, sy, sw, sh = rect.x, rect.y, rect.w, rect.h
-        # Clamp to surface bounds.
-        sx = max(0, min(sx, LCD_WIDTH))
-        sy = max(0, min(sy, LCD_HEIGHT))
-        sw = max(0, min(sw, LCD_WIDTH - sx))
-        sh = max(0, min(sh, LCD_HEIGHT - sy))
-        if sw == 0 or sh == 0:
-            return
-
-        sub: pygame.Surface = surface.subsurface(pygame.Rect(sx, sy, sw, sh))
-        if self._flip:
-            sub = pygame.transform.rotate(sub, 180)
-        rgb: bytes = pygame.image.tostring(sub, "RGB")
-        pil_sub: Image.Image = Image.frombytes("RGB", (sw, sh), rgb)
-
-        panel_x: int = LCD_HEIGHT - sy - sh
-        panel_y: int = sx
-        self._disp.image(  # type: ignore[union-attr]
-            pil_sub, 270 if self._flip else 90, x=panel_x, y=panel_y
-        )
+            self._disp._block(x1, y1, x1 + sw - 1, y1 + sh - 1, pixels_bytes)  # type: ignore[union-attr]
 
     def clear(self) -> None:
         if self._disp is not None:
-            from PIL import Image  # type: ignore[import-untyped]
-
-            black: Image.Image = Image.new("RGB", (LCD_WIDTH, LCD_HEIGHT), (0, 0, 0))
-            self._disp.image(black, 270 if self._flip else 90)  # type: ignore[union-attr]
+            self._disp.fill(0)  # type: ignore[union-attr]
 
     def transfer_ms(self, rect: Box | None = None) -> float:
         """Estimated milliseconds to push ``rect`` (or the whole panel) over SPI."""

@@ -12,6 +12,7 @@ from __future__ import annotations
 import pygame
 
 from pistomp_recovery.constants import LCD_HEIGHT, LCD_WIDTH
+from pistomp_recovery.hardware.lcd import LcdSpi
 from pistomp_recovery.items import Row, Target
 from pistomp_recovery.ui.screens.menu_screen import MenuScreen
 from pistomp_recovery.ui.widgets.header import ICON_BACK
@@ -155,3 +156,125 @@ class TestTransferMs:
 
         lcd = LcdSpi()
         assert lcd.transfer_ms(Box(0, 0, 0, 0)) >= 0  # fixed overhead only
+
+
+class _FakePanel:
+    """Records the SPI address-window writes a landscape-native LcdSpi emits.
+
+    Mirrors the Adafruit driver surface pi-stomp's ``LcdIli9341`` uses:
+    ``_block(x0, y0, x1, y1, data)`` is the partial/full push primitive, and
+    ``image(...)`` / ``fill(...)`` are the legacy full-frame APIs. We assert
+    that ``update()`` reaches ``_block`` directly (the landscape-native path)
+    and never falls back to the rotated ``image()`` path.
+    """
+
+    def __init__(self, width: int = LCD_WIDTH, height: int = LCD_HEIGHT) -> None:
+        self.width = width
+        self.height = height
+        self.blocks: list[tuple[int, int, int, int, bytes]] = []
+        self.image_calls: int = 0
+        self.fill_calls: int = 0
+        # Attributes the driver touches (set by LcdSpi.init via the real driver).
+        self._block = self._record_block
+        self.spi_device: object | None = None
+        self.dc_pin: object | None = None
+        self._X_START = 0
+        self._Y_START = 0
+        self._COLUMN_SET = 0x2A
+        self._PAGE_SET = 0x2B
+        self._RAM_WRITE = 0x2C
+
+    def _record_block(self, x0: int, y0: int, x1: int, y1: int, data: bytes | None = None) -> None:
+        assert data is not None, "_block must be called with pixel data"
+        self.blocks.append((x0, y0, x1, y1, bytes(data)))
+
+    def image(self, *args: object, **kwargs: object) -> None:
+        self.image_calls += 1
+
+    def fill(self, *args: object, **kwargs: object) -> None:
+        self.fill_calls += 1
+
+    def write(self, *args: object, **kwargs: object) -> None:
+        pass
+
+
+class TestLcdSpiPanelWindow:
+    """LcdSpi drives the panel landscape-native: surface coords map straight
+    to the address window, for both full and partial pushes, regardless of
+    flip. Mirrors pi-stomp's ``uilib/lcd_ili9341.py`` (no per-push rotation,
+    no coordinate swap)."""
+
+    def _make_lcd(self, flip: bool = True) -> tuple[LcdSpi, _FakePanel]:
+        import numpy
+
+        lcd = LcdSpi(flip=flip)
+        panel = _FakePanel()
+        lcd._disp = panel  # type: ignore[assignment]
+        lcd._pixels = numpy.empty((LCD_HEIGHT, LCD_WIDTH, 2), dtype=numpy.uint8)  # type: ignore[assignment]
+        return lcd, panel
+
+    def test_partial_push_window_matches_surface_rect(self) -> None:
+        # A surface rect (x=0, y=100, w=320, h=40) must land at panel window
+        # (0, 100, 319, 139) — same coordinates, no vertical flip.
+        lcd, panel = self._make_lcd()
+        surface = pygame.Surface((LCD_WIDTH, LCD_HEIGHT))
+        lcd.update(surface, [Box(0, 100, 320, 40)])
+        assert len(panel.blocks) == 1
+        x0, y0, x1, y1, _ = panel.blocks[0]
+        assert (x0, y0, x1, y1) == (0, 100, 319, 139)
+        assert panel.image_calls == 0
+
+    def test_full_push_window_is_full_surface(self) -> None:
+        lcd, panel = self._make_lcd()
+        surface = pygame.Surface((LCD_WIDTH, LCD_HEIGHT))
+        lcd.update(surface, None)
+        assert len(panel.blocks) == 1
+        x0, y0, x1, y1, _ = panel.blocks[0]
+        assert (x0, y0, x1, y1) == (0, 0, 319, 239)
+        assert panel.image_calls == 0
+
+    def test_flip_and_non_flip_same_window(self) -> None:
+        # Orientation is MADCTL's job; the per-push window math is flip-invariant.
+        rect = Box(10, 20, 30, 40)
+        for flip in (True, False):
+            lcd, panel = self._make_lcd(flip=flip)
+            surface = pygame.Surface((LCD_WIDTH, LCD_HEIGHT))
+            lcd.update(surface, [rect])
+            x0, y0, x1, y1, _ = panel.blocks[0]
+            assert (x0, y0, x1, y1) == (10, 20, 39, 59)
+
+    def test_partial_push_pixels_match_subsurface(self) -> None:
+        # RGB565-exact row colors: R,B multiples of 8, G a multiple of 4, so the
+        # 565 pack (R>>3, G>>2, B>>3) round-trips. Decode the pushed bytes back
+        # and assert rows 100..139 of the surface reconstruct in order.
+        import numpy as np
+
+        lcd, panel = self._make_lcd()
+        surface = pygame.Surface((LCD_WIDTH, LCD_HEIGHT))
+        for y in range(100, 140):
+            r = (y * 3) & 0xF8
+            g = (y * 5) & 0xFC
+            b = (y * 7) & 0xF8
+            pygame.draw.line(surface, (r, g, b), (0, y), (LCD_WIDTH - 1, y))
+
+        lcd.update(surface, [Box(0, 100, 320, 40)])
+        x0, y0, x1, y1, data = panel.blocks[0]
+        assert (x0, y0, x1, y1) == (0, 100, 319, 139)
+        # data is row-major RGB565 for the 320x40 window.
+        buf = np.frombuffer(data, dtype=np.uint16).reshape(40, 320)
+        for row in range(40):
+            y = 100 + row
+            r = (y * 3) & 0xF8
+            g = (y * 5) & 0xFC
+            b = (y * 7) & 0xF8
+            expected565 = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3)
+            # The panel write is MSB-first; np.uint16 reads host order. Recover
+            # the wire word both ways and accept either endianness.
+            px = int(buf[row, 0])
+            lo = px & 0xFF
+            hi = (px >> 8) & 0xFF
+            wire_be = (hi << 8) | lo
+            wire_le = (lo << 8) | hi
+            assert wire_be == expected565 or wire_le == expected565, (
+                f"row {y}: px={px:#06x} expected={expected565:#06x}"
+            )

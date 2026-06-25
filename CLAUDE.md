@@ -109,7 +109,7 @@ Both use a `device` working branch. The root menu's Checkpoint/Factory/Updates r
 
 **Rendering** is deterministic for byte-for-byte snapshot tests: a 320×240 surface (40×15 grid), one non-antialiased 8×16 bitmap font at one size, emphasis via reverse video only. Always render through `SafeFont`/`get_font()` (never `pygame.font.Font` — it has a circular import on Python 3.14). Widgets are plain `draw(surface)` renderers; there is no widget hierarchy.
 
-**Hardware** (`hardware/`, all `try/except ImportError` so the package imports off-device) must mirror `../pi-stomp` exactly — its implementation is the proven reference, and the `--system-site-packages` venv resolves the same `gpiozero`/`lgpio`/`spidev`. The non-obvious facts: nav encoder is D=GPIO17/CLK=GPIO4 via `gpiozero.Button` (pull-up, gray-code decode) with a claim-retry loop; the push-switch is on the **MCP3008 ADC, bus 0 / CE1, channel 4** (CE0 is the LCD); `lcd.py` applies `driver_patch` (numpy `.tobytes()` frame packer, ≈2.6× faster) before the first blit.
+**Hardware** (`hardware/`, all `try/except ImportError` so the package imports off-device) must mirror `../pi-stomp` exactly — its implementation is the proven reference, and the `--system-site-packages` venv resolves the same `gpiozero`/`lgpio`/`spidev`. The non-obvious facts: nav encoder is D=GPIO17/CLK=GPIO4 via `gpiozero.Button` (pull-up, gray-code decode) with a claim-retry loop; the push-switch is on the **MCP3008 ADC, bus 0 / CE1, channel 4** (CE0 is the LCD); `lcd.py` drives the panel **landscape-native** (MADCTL `0xE8`/`0x28` set once in `init`) and pushes both full and partial rects through a single `_block_fast` path (numpy RGB565 pack → single SPI lock/CS, `os.write` chunked by `SPIDEV_BUFSIZ`) — surface coords map straight to the panel address window, no per-push rotation or coordinate swap.
 
 ## Key Files
 
@@ -147,7 +147,7 @@ Both use a `device` working branch. The root menu's Checkpoint/Factory/Updates r
 - `pygame_init.py` — idempotent headless-safe pygame + `_freetype` init
 
 **Hardware** (`try/except ImportError`)
-- `hardware/encoder.py`, `switch.py`, `lcd.py`, `driver_patch.py`
+- `hardware/encoder.py`, `switch.py`, `lcd.py`
 
 **Emulator**
 - `emulator/backends.py` — pygame display, fake input, facets on temp dirs, stub services

@@ -1,3 +1,4 @@
+# pyright: reportPrivateUsage=false
 """Tests for boot-mode detection and crash diagnosis."""
 
 from __future__ import annotations
@@ -61,9 +62,10 @@ def test_diagnose_services_picks_first_failed() -> None:
         patch("pistomp_recovery.service.service_last_result", return_value="exit-code"),
         patch("pistomp_recovery.service.service_journal", return_value="audio: no card"),
     ):
-        mock_status.side_effect = lambda svc: (
-            "failed" if svc == "jack" else "inactive"
-        )
+        def _status(svc: str) -> str:
+            return "failed" if svc == "jack" else "inactive"
+
+        mock_status.side_effect = _status
         info = diagnose_services(["jack", "mod-host", "mod-ui", "mod-ala-pi-stomp"])
 
     assert info.boot_mode == BootMode.CRASH_RECOVERY
@@ -115,7 +117,10 @@ def test_get_boot_mode_crash_when_jack_stopped_after_crash() -> None:
         patch("pistomp_recovery.service.service_last_result") as mock_result,
         patch("pistomp_recovery.service.service_journal", return_value=""),
     ):
-        mock_result.side_effect = lambda svc: "exit-code" if svc == "jack" else "success"
+        def _result(svc: str) -> str:
+            return "exit-code" if svc == "jack" else "success"
+
+        mock_result.side_effect = _result
         assert get_boot_mode() == BootMode.CRASH_RECOVERY
 
 

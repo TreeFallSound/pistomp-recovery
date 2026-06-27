@@ -219,6 +219,15 @@ class FakeDataBackend(DataBackend):
             self._updates[domain] = [u for u in updates if u.name not in packages]
         return self._install_success
 
+    def has_internet(self) -> bool:
+        return False
+
+    def refresh_package_db(self) -> None:
+        pass
+
+    def package_detail(self, name: str) -> list[str]:
+        return []
+
 
 # ---------------------------------------------------------------------------
 # FakeServiceBackend — stub lifecycle and crash info

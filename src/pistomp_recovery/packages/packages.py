@@ -62,6 +62,9 @@ class PackageFacet:
         self._write_stamp_file()
         return None
 
+    def unverified_packages(self) -> tuple[str, ...]:
+        return self._manager.verify_packages(self._packages)
+
     def available_updates(self) -> list[tuple[str, str, str]]:
         return self._manager.check_updates(self._packages)
 

@@ -69,6 +69,16 @@ class PackageManager(Protocol):
         """
         ...
 
+    def verify_packages(self, names: tuple[str, ...]) -> tuple[str, ...]:
+        """Return the subset of `names` whose installed files differ from what
+        the package manager recorded at install time.
+
+        Uses dpkg --verify (apt) or pacman -Qkk (pacman). Packages with no
+        checksum records (e.g. built with dpkg-deb --build without md5sums) are
+        silently skipped and will never appear in the result.
+        """
+        ...
+
 
 class PacmanManager:
     """PackageManager backed by pacman (Arch Linux / Arch Linux ARM)."""
@@ -191,6 +201,16 @@ class PacmanManager:
             if len(parts) >= 4 and "[installed]" in parts[3:]:
                 installed.append(parts[1])
         return tuple(installed)
+
+    def verify_packages(self, names: tuple[str, ...]) -> tuple[str, ...]:
+        dirty: list[str] = []
+        for name in names:
+            result: subprocess.CompletedProcess[str] = subprocess.run(
+                ["pacman", "-Qkk", name], capture_output=True, text=True, check=False
+            )
+            if result.returncode != 0:
+                dirty.append(name)
+        return tuple(dirty)
 
 
 class AptManager:
@@ -347,9 +367,15 @@ class AptManager:
         lists_dir = Path("/var/lib/apt/lists")
         available: set[str] = set()
         try:
-            # Find InRelease files whose Origin: header matches, then parse the
-            # corresponding binary Packages file to collect package names.
-            for release_file in lists_dir.glob("*_InRelease"):
+            # Find InRelease or Release files whose Origin: header matches, then
+            # parse the corresponding binary Packages file to collect package names.
+            # Repos configured with [trusted=yes] only produce a plain Release file
+            # (no InRelease), so we must check both.
+            release_files = [
+                *lists_dir.glob("*_InRelease"),
+                *[f for f in lists_dir.glob("*_Release") if not f.name.endswith("_Release.gpg")],
+            ]
+            for release_file in release_files:
                 try:
                     content = release_file.read_text(errors="replace")
                 except OSError:
@@ -359,7 +385,8 @@ class AptManager:
                 # Derive the Packages file path: same URL prefix, different suffix.
                 # e.g. sastraxi.github.io_pi-gen-pistomp_dists_trixie_InRelease →
                 #      sastraxi.github.io_pi-gen-pistomp_dists_trixie_main_binary-arm64_Packages
-                prefix = release_file.name[: -len("_InRelease")]
+                suffix = "_InRelease" if release_file.name.endswith("_InRelease") else "_Release"
+                prefix = release_file.name[: -len(suffix)]
                 for pkg_file in lists_dir.glob(f"{prefix}_*_Packages"):
                     try:
                         for line in pkg_file.read_text(errors="replace").splitlines():
@@ -392,6 +419,16 @@ class AptManager:
             if len(parts) == 2 and parts[1].startswith("ii"):
                 installed.append(parts[0])
         return tuple(installed)
+
+    def verify_packages(self, names: tuple[str, ...]) -> tuple[str, ...]:
+        dirty: list[str] = []
+        for name in names:
+            result: subprocess.CompletedProcess[str] = subprocess.run(
+                ["dpkg", "--verify", name], capture_output=True, text=True, check=False
+            )
+            if result.returncode != 0:
+                dirty.append(name)
+        return tuple(dirty)
 
 
 def detect_package_manager() -> PacmanManager | AptManager:

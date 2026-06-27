@@ -242,9 +242,11 @@ class RecoveryAppCore:
         self.push_screen(screen)
         return screen
 
-    def _show_main_menu(self) -> None:
+    def _build_main_menu_rows(
+        self,
+        unverified: tuple[str, ...] = (),
+    ) -> list[Row]:
         services = self._backends.services
-        title: str = f"Recovery! {services.recovery_sha()}"
         rows: list[Row] = [
             Row(
                 (
@@ -263,14 +265,15 @@ class RecoveryAppCore:
                 )
             ),
             Row(prefix="---", separator=True),
-            Row(
-                (
-                    Target(
-                        "Updates",
-                        self._show_updates_menu,
-                    ),
-                )
-            ),
+            Row((Target("Updates", self._show_updates_menu),)),
+        ]
+        if unverified:
+            n = len(unverified)
+            label = f"{n} package{'s' if n != 1 else ''} unverified"
+            rows.append(
+                Row((Target(label, lambda u=unverified: self._show_unverified_menu(u)),))
+            )
+        rows += [
             Row(
                 (
                     Target(
@@ -291,7 +294,27 @@ class RecoveryAppCore:
             Row((Target("Reboot", services.reboot, confirm="Reboot now?"),)),
             Row((Target("Power Off", services.power_off, confirm="Power off now?"),)),
         ]
-        self._push_menu(title, rows, back=False)
+        return rows
+
+    def _show_main_menu(self) -> None:
+        services = self._backends.services
+        title: str = f"Recovery! {services.recovery_sha()}"
+        menu = self._push_menu(title, self._build_main_menu_rows(), back=False)
+
+        def _check() -> None:
+            unverified = self._backends.data.unverified_packages()
+            if unverified:
+                menu.set_rows(self._build_main_menu_rows(unverified))
+                self._mark_dirty(None)
+
+        threading.Thread(target=_check, daemon=True).start()
+
+    def _show_unverified_menu(self, unverified: tuple[str, ...]) -> None:
+        rows: list[Row] = [
+            Row(prefix=name)
+            for name in unverified
+        ]
+        self._push_menu("Unverified Packages", rows, back=True)
 
     def _show_domain_picker(self, mode: str) -> None:
         rows: list[Row] = []

@@ -118,6 +118,13 @@ class DataBackend(Protocol):
         """
         ...
 
+    def unverified_packages(self) -> tuple[str, ...]:
+        """Return installed pistomp packages whose files differ from what was
+        installed by the package manager.  Empty tuple when all are clean or
+        no checksum records exist.  May be slow — call from a background thread.
+        """
+        ...
+
 
 @runtime_checkable
 class ServiceBackend(Protocol):

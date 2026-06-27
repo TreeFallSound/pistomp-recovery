@@ -20,9 +20,11 @@ This service lives in an ecosystem of sibling repos:
 >
 > **Packaging lives in `../pi-gen-pistomp`.** This repo intentionally has no `PKGBUILD`, `.deb` `debian/` tree, or service file anymore — it is deployment-agnostic source. The only deployment target we exercise today is Debian via `pi-gen-pistomp`; `PacmanManager` remains for Arch as a runtime code path, but nothing in-repo builds an Arch package.
 
-## OS & Deployment
+### Running and deploying on pi-Stomp! OS
 
-Recovery runs on a custom Linux image (currently Debian Trixie via `pi-gen-pistomp`; `pacman`-based Arch is still supported at runtime by the package-manager abstraction), out of its own venv, as the `pistomp` user (not root).
+A raspberry pi based guitar pedal -- the latest and most common version is v3, which has a 320x240 LCD, rotary encoders with buttons, and footswitches. The distribution is([pi-gen-pistomp](https://github.com/sastraxi/pi-gen-pistomp)), a Debian Trixie image. Recovery runs out of its own venv as the `pistomp` user.
+
+There is an apt repository hosted at https://sastraxi.github.io/pi-gen-pistomp/ that is installed on the running device, which provides custom .deb packages that comprise the running system: pi-stomp, mod-ui, mod-host, jack2-pistomp, etc. `pistomp-recovery` is just another one of these packages, but it also *manages* the relationship with and downloading of packages from that repository.
 
 | Path | Purpose |
 |------|---------|

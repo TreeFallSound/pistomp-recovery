@@ -126,6 +126,15 @@ class RealDataBackend(DataBackend):
     def package_detail(self, name: str) -> list[str]:
         return self._manager.package_detail(name)
 
+    def unverified_packages(self) -> tuple[str, ...]:
+        from pistomp_recovery.packages.packages import make_package_facet
+
+        try:
+            return make_package_facet(self._manager).unverified_packages()
+        except Exception:
+            logger.debug("Could not verify packages", exc_info=True)
+            return ()
+
     def _remove_from_update_cache(self, packages: list[str]) -> None:
         """Drop installed packages from the cached update list."""
         if self._update_items is None:

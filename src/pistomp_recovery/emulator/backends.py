@@ -284,6 +284,9 @@ class EmulatorDataBackend(DataBackend):
             "would appear here.",
         ]
 
+    def unverified_packages(self) -> tuple[str, ...]:
+        return ()
+
     def domains(self, mode: str = "") -> tuple[tuple[str, str], ...]:
         all_domains: tuple[tuple[str, str], ...] = (
             ("pedalboards", "Pedalboards"),

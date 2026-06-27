@@ -1,14 +1,16 @@
 from __future__ import annotations
 
+import io
 import logging
 import shutil
 import tarfile
 import urllib.request
 from pathlib import Path
-from typing import Callable
+from typing import Callable, cast
 
 from pistomp_recovery.constants import (
     FACTORY_LV2_BUNDLES_FILE,
+    FACTORY_LV2_SYSTEM_BUNDLES_FILE,
     LV2_PLUGINS_URL,
     PATCHSTORAGE_MARKER,
     PLUGINS_CACHE_WARN_BYTES,
@@ -141,6 +143,17 @@ class PluginFacet:
     def _factory_names(self) -> set[str]:
         return _read_names(self._allowlist_file)
 
+    def _system_plugin_bundles(self) -> set[str]:
+        """Bundle dir names delivered by .deb packages in the system LV2 path
+        that the factory tarball must not shadow.
+
+        Read from the list the image builder records
+        (``FACTORY_LV2_SYSTEM_BUNDLES_FILE``). Older images that predate the
+        list simply have no file here, so the set is empty and the reset falls
+        back to plain additive extraction — never an error.
+        """
+        return _read_names(FACTORY_LV2_SYSTEM_BUNDLES_FILE)
+
     # -- bundle enumeration --------------------------------------------------
 
     def _user_bundles(self) -> list[Path]:
@@ -261,7 +274,7 @@ class PluginFacet:
         for bundle in self._user_bundles():
             self.remove_bundle(bundle.name)
 
-    def rollback(self, name: str, target: RollbackTarget) -> None:
+    def rollback(self, name: str, _target: RollbackTarget) -> None:
         # Plugins have no per-stamp content history; both targets mean "delete
         # the user-installed bundle." Factory plugins live in the system LV2
         # path and are unaffected.
@@ -277,7 +290,8 @@ class PluginFacet:
         if not self.path.is_dir():
             return 0
         return sum(
-            1 for e in self.path.iterdir()
+            1
+            for e in self.path.iterdir()
             if e.is_dir() and not (e / PATCHSTORAGE_MARKER).is_file()
         )
 
@@ -296,9 +310,15 @@ class PluginFacet:
         """Stream-download and untar the factory plugin archive over PLUGINS_DIR.
 
         Extracts additively — existing bundles not in the archive are untouched.
+        Bundles that are package-delivered in the system LV2 path
+        (``_system_plugin_bundles``) are skipped on extract so the older tarball
+        copy can't shadow the apt/OTA-maintained one (mod-host scans ~/.lv2
+        before /usr/lib/lv2). This mirrors the image builder's tarball-extract
+        exclusion; a user-installed override in ~/.lv2 is left untouched.
         """
         try:
             progress("Connecting", 0.0, "Opening download...", False)
+            exclude = self._system_plugin_bundles()
             resp = urllib.request.urlopen(LV2_PLUGINS_URL, timeout=60)
             total = int(resp.headers.get("Content-Length") or 0)
             read_so_far = [0]
@@ -312,12 +332,17 @@ class PluginFacet:
             dest = self.path.resolve().parent
             dest.mkdir(parents=True, exist_ok=True)
 
-            with tarfile.open(fileobj=_Reader(), mode="r|gz") as tf:  # type: ignore[arg-type]
-                for member in tf:  # type: ignore[assignment]
+            with tarfile.open(fileobj=cast(io.RawIOBase, _Reader()), mode="r|gz") as tf:
+                for member in tf:
+                    # Members look like ".lv2/<bundle>/..."; drop the leading
+                    # "." / "" components so a "./.lv2/..." prefix matches too.
+                    parts = [p for p in member.name.split("/") if p not in ("", ".")]
+                    if len(parts) >= 2 and parts[0] == ".lv2" and parts[1] in exclude:
+                        continue
                     tf.extract(member, path=dest, filter="data")  # type: ignore[call-arg]
                     if total:
                         frac = min(read_so_far[0] / total, 0.99)
-                        name: str = str(member.name).split("/")[-1] or "..."  # type: ignore[attr-defined]
+                        name: str = member.name.split("/")[-1] or "..."
                         progress("Downloading", frac, name, False)
 
             progress("Done", 1.0, "Click to continue.", True)

@@ -24,6 +24,13 @@ PACKAGES_STAMP_FILE: str = f"{RECOVERY_DIR}/packages.stamp"
 PLUGINS_STAMP_FILE: str = f"{RECOVERY_DIR}/plugins.stamp"
 FACTORY_PACKAGES_FILE: str = "/etc/pistomp/factory-packages.list"
 FACTORY_LV2_BUNDLES_FILE: str = "/etc/pistomp/factory-lv2-bundles.list"
+# Bundles delivered by .deb packages in the system LV2 path that must never be
+# shadowed by the factory tarball. The image builder records these (see
+# stage3/01-pistomp in pi-gen-pistomp: package-owned /usr/lib/lv2 bundles that
+# contain a .so). reset_factory_plugins() skips them on extract so the
+# apt/OTA-maintained copy in /usr/lib/lv2 stays authoritative. Absent on images
+# predating the list, in which case no bundles are excluded.
+FACTORY_LV2_SYSTEM_BUNDLES_FILE: str = "/etc/pistomp/factory-lv2-system-bundles.list"
 LV2_PLUGINS_URL: str = "https://www.treefallsound.com/downloads/lv2plugins.tar.gz"
 LCD_WIDTH: int = 320
 LCD_HEIGHT: int = 240
@@ -58,6 +65,7 @@ DOMAIN_FACETS: dict[str, tuple[str, ...]] = {
     DOMAIN_CONFIG: ("config", "boot"),
     DOMAIN_SYSTEM: ("packages",),
 }
+
 
 def domain_for_package(pkg: str) -> str:
     return DOMAIN_SYSTEM

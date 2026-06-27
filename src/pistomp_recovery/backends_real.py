@@ -131,15 +131,19 @@ class RealDataBackend(DataBackend):
         if self._update_items is None:
             return
         pkg_set = set(packages)
-        remaining = [it for it in self._update_items if it.name not in pkg_set and it.name != "all"]
+        remaining = [
+            it for it in self._update_items if it.name not in pkg_set and it.name != "all"
+        ]
         if len(remaining) > 1:
-            remaining.append(Item(
-                name="all",
-                label="Update All",
-                dirty=False,
-                right=f"{len(remaining)} pkgs",
-                actions=[],
-            ))
+            remaining.append(
+                Item(
+                    name="all",
+                    label="Update All",
+                    dirty=False,
+                    right=f"{len(remaining)} pkgs",
+                    actions=[],
+                )
+            )
         self._update_items = remaining
 
     def domains(self, mode: str = "") -> tuple[tuple[str, str], ...]:
@@ -178,20 +182,18 @@ class RealDataBackend(DataBackend):
             except Exception:
                 logger.debug("Could not list %s items", facet.name, exc_info=True)
                 continue
-                wanted: str = (
-                    "Rollback to stamp" if mode == "checkpoint" else "Rollback to factory"
-                )
-                for it in raw:
-                    actions = [a for a in it.actions if a.label == wanted]
-                    if not actions:
-                        # Keep clean no-action items (e.g. missing plugin bundles)
-                        # as informational rows in checkpoint mode.
-                        if mode == "checkpoint" and not it.dirty:
-                            out.append(Item(it.name, it.label, it.dirty, it.right, actions))
-                        continue
+            wanted: str = "Rollback to stamp" if mode == "checkpoint" else "Rollback to factory"
+            for it in raw:
+                actions = [a for a in it.actions if a.label == wanted]
+                if not actions:
+                    # Keep clean no-action items (e.g. missing plugin bundles)
+                    # as informational rows in checkpoint mode.
                     if mode == "checkpoint" and not it.dirty:
-                        continue
-                    out.append(Item(it.name, it.label, it.dirty, it.right, actions))
+                        out.append(Item(it.name, it.label, it.dirty, it.right, actions))
+                    continue
+                if mode == "checkpoint" and not it.dirty:
+                    continue
+                out.append(Item(it.name, it.label, it.dirty, it.right, actions))
         return out
 
     def domain_summary(self, mode: str, domain: str) -> str:

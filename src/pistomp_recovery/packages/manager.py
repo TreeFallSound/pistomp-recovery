@@ -8,6 +8,7 @@ implement it for Arch Linux and Debian/Raspbian respectively.
 from __future__ import annotations
 
 import logging
+import os
 import re
 import shutil
 import subprocess
@@ -230,12 +231,11 @@ class AptManager:
             capture_output=True,
             text=True,
             check=False,
+            env={**os.environ, "LANG": "C", "LC_ALL": "C"},
         )
         name_set = set(names)
         updates: list[tuple[str, str, str]] = []
-        pattern = re.compile(
-            r"^([^/\s]+)/\S+\s+(\S+)\s+\S+\s+\[upgradable from:\s+([^\]]+)\]"
-        )
+        pattern = re.compile(r"^([^/\s]+)/\S+\s+(\S+)\s+\S+\s+\[upgradable from:\s+([^\]]+)\]")
         for line in result.stdout.split("\n"):
             m = pattern.match(line)
             if m and m.group(1) in name_set:
@@ -285,21 +285,26 @@ class AptManager:
         return True
 
     def install_version(self, name: str, version: str) -> bool:
-        # Try local cache first (Debian encodes ":" as "%3a" in filenames)
+        # Debian encodes ":" as "%3a" in .deb filenames.
         safe_ver = version.replace(":", "%3a")
-        cache = Path("/var/cache/apt/archives")
-        matches = sorted(cache.glob(f"{name}_{safe_ver}_*.deb"))
-        if matches:
-            result: subprocess.CompletedProcess[str] = subprocess.run(
-                ["sudo", "dpkg", "-i", str(matches[0])],
-                capture_output=True,
-                text=True,
-            )
-            if result.returncode == 0:
-                return True
-            logger.warning("dpkg cache install failed, trying apt: %s", result.stderr)
+        # Check factory stash before the apt cache: reprepro only keeps the
+        # latest version, so the factory .deb may no longer be in the repo.
+        for search_dir in [
+            Path("/opt/pistomp/factory-debs"),
+            Path("/var/cache/apt/archives"),
+        ]:
+            matches = sorted(search_dir.glob(f"{name}_{safe_ver}_*.deb"))
+            if matches:
+                res: subprocess.CompletedProcess[str] = subprocess.run(
+                    ["sudo", "dpkg", "-i", str(matches[0])],
+                    capture_output=True,
+                    text=True,
+                )
+                if res.returncode == 0:
+                    return True
+                logger.warning("dpkg install from %s failed: %s", search_dir, res.stderr)
 
-        result = subprocess.run(
+        result: subprocess.CompletedProcess[str] = subprocess.run(
             [
                 "sudo",
                 "apt-get",
@@ -338,7 +343,6 @@ class AptManager:
                 lines.append("" if stripped == "." else stripped)
         return lines
 
-
     def discover_packages(self, origin: str) -> tuple[str, ...]:
         lists_dir = Path("/var/lib/apt/lists")
         available: set[str] = set()
@@ -350,10 +354,7 @@ class AptManager:
                     content = release_file.read_text(errors="replace")
                 except OSError:
                     continue
-                if not any(
-                    line.strip() == f"Origin: {origin}"
-                    for line in content.splitlines()
-                ):
+                if not any(line.strip() == f"Origin: {origin}" for line in content.splitlines()):
                     continue
                 # Derive the Packages file path: same URL prefix, different suffix.
                 # e.g. sastraxi.github.io_pi-gen-pistomp_dists_trixie_InRelease →
@@ -399,6 +400,4 @@ def detect_package_manager() -> PacmanManager | AptManager:
         return PacmanManager()
     if shutil.which("apt-get"):
         return AptManager()
-    raise RuntimeError(
-        "No supported package manager found (expected pacman or apt-get)"
-    )
+    raise RuntimeError("No supported package manager found (expected pacman or apt-get)")

@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from pistomp_recovery.facet import all_facets
+from pistomp_recovery.facet import all_facets, register_default_facets
 
 FACET_ORDER: tuple[str, ...] = ("pedalboards", "plugins", "packages", "config", "system")
 
@@ -88,6 +88,8 @@ def main(args: list[str] | None = None) -> None:
         positional = [a for a in (args or [])[1:] if not a.startswith("-")]
         if positional:
             parsed.pedalboard = positional[0]
+
+    register_default_facets()
 
     if parsed.command == "stamp":
         cmd_stamp(parsed)

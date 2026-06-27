@@ -78,13 +78,15 @@ class PackageFacet:
             for name, old_ver, new_ver in updates
         ]
         if len(items) > 1:
-            items.append(Item(
-                name="all",
-                label="Update All",
-                dirty=False,
-                right=f"{len(items)} pkgs",
-                actions=[],
-            ))
+            items.append(
+                Item(
+                    name="all",
+                    label="Update All",
+                    dirty=False,
+                    right=f"{len(items)} pkgs",
+                    actions=[],
+                )
+            )
         return items
 
     def list_items(self) -> list[Item]:
@@ -92,7 +94,6 @@ class PackageFacet:
         installed = self._collect_versions()
         stamped = self._read_stamp_file()
         factory = self._read_factory_file()
-        available: dict[str, str] = {u[0]: u[2] for u in self.available_updates()}
 
         stamp_time: datetime | None = None
         stamp_path = Path(PACKAGES_STAMP_FILE)
@@ -107,7 +108,6 @@ class PackageFacet:
             inst = installed.get(pkg, "not-installed")
             stamp = stamped.get(pkg, "not-installed")
             fact = factory.get(pkg, "not-installed")
-            avail = available.get(pkg)
             is_dirty = inst != stamp
 
             if is_dirty and stamp_time:
@@ -117,19 +117,8 @@ class PackageFacet:
             else:
                 right = human_time(stamp_time) if stamp_time else "factory"
 
-            if avail:
-                right = f"↑{avail}"
-
             label = pkg + (" *" if is_dirty else "")
             actions: list[Action] = []
-            if avail:
-                actions.append(
-                    Action(
-                        "Update",
-                        lambda p=pkg: self._install_single(p),
-                        confirm=f"Update {pkg}?",
-                    )
-                )
             if is_dirty and stamp != "not-installed":
                 actions.append(
                     Action(
@@ -148,16 +137,6 @@ class PackageFacet:
                 )
             items.append(Item(name=pkg, label=label, dirty=is_dirty, right=right, actions=actions))
         return items
-
-    def _install_single(self, pkg: str) -> None:
-        if not self._manager.download([pkg]):
-            logger.error("Download failed for %s", pkg)
-            return
-        if not self._manager.install([pkg]):
-            logger.error("Install failed for %s", pkg)
-            self._manager.install_from_cache([pkg])
-            return
-        self.stamp()
 
     def rollback(self, name: str, target: RollbackTarget) -> None:
         stamped = self._read_stamp_file()

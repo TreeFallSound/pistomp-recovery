@@ -9,7 +9,7 @@ from pistomp_recovery.items import Row, Target
 from pistomp_recovery.service import CrashInfo
 from pistomp_recovery.ui.colors import COLORS
 from pistomp_recovery.ui.fonts import TEXT_DY, cell_size, get_font, text_width
-from pistomp_recovery.ui.screens.menu_screen import MenuScreen, HEADER, SEP
+from pistomp_recovery.ui.screens.menu_screen import HEADER, SEP, MenuScreen
 from pistomp_recovery.ui.widgets.header import ICON_EXIT
 from pistomp_recovery.ui.widgets.misc import Box, InputEvent
 

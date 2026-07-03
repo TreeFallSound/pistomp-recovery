@@ -11,6 +11,7 @@ import logging
 import socket
 import subprocess
 import threading
+from typing import Callable
 
 import pygame
 
@@ -24,7 +25,13 @@ from pistomp_recovery.backends import (
 )
 from pistomp_recovery.constants import DOMAIN_FACETS, services_for_packages
 from pistomp_recovery.facet import Facet, all_facets, register_default_facets
-from pistomp_recovery.hardware.encoder import EncoderInput, NAV_PIN_CLK, NAV_PIN_D, TWEAK1_PIN_CLK, TWEAK1_PIN_D
+from pistomp_recovery.hardware.encoder import (
+    NAV_PIN_CLK,
+    NAV_PIN_D,
+    TWEAK1_PIN_CLK,
+    TWEAK1_PIN_D,
+    EncoderInput,
+)
 from pistomp_recovery.hardware.lcd import LcdSpi
 from pistomp_recovery.hardware.switch import AdcSwitch
 from pistomp_recovery.items import Item
@@ -125,6 +132,20 @@ class RealDataBackend(DataBackend):
             return
         self._manager.sync_db()
         # Pre-fetch and cache so domain_items() is instant after the sync.
+        self._update_items = self._fetch_update_items()
+
+    def refresh_package_db_streaming(
+        self, line_callback: Callable[[str], None], cancel_event: threading.Event
+    ) -> None:
+        if not self.has_internet():
+            line_callback("No internet connection.")
+            return
+        ok = self._manager.sync_db_restricted(line_callback, cancel_event)
+        if cancel_event.is_set():
+            return
+        if not ok:
+            line_callback("Package index sync failed.")
+            return
         self._update_items = self._fetch_update_items()
 
     def package_detail(self, name: str) -> list[str]:

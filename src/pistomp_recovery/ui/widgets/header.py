@@ -9,6 +9,7 @@ from pistomp_recovery.ui.fonts import TEXT_DY, cell_size, get_font, text_width
 #: Glyphs for the header's top-right action icon (CP437-native).
 ICON_BACK: str = "← Back"
 ICON_EXIT: str = "♫ Exit"
+ICON_CANCEL: str = "Cancel"
 
 
 def header_height() -> int:

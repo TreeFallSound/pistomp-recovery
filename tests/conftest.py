@@ -7,6 +7,7 @@ Injected into sys.modules at import time so application code can be imported in 
 
 import os
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Callable, Generator
@@ -234,6 +235,11 @@ class FakeDataBackend(DataBackend):
     def refresh_package_db(self) -> None:
         pass
 
+    def refresh_package_db_streaming(
+        self, line_callback: Callable[[str], None], cancel_event: "threading.Event"
+    ) -> None:
+        pass
+
     def package_detail(self, name: str) -> list[str]:
         return []
 
@@ -346,15 +352,16 @@ class AppHarness:
     def drain(self, timeout: float = 3.0) -> None:
         """Wait for any in-progress background work to finish.
 
-        Polls until the current menu screen leaves PROGRESS state (meaning the
-        background thread called clear_progress), then does a final redraw.
+        Polls until the current menu screen leaves PROGRESS or TAIL state
+        (meaning the background thread called clear_progress / clear_tail),
+        then does a final redraw.
         """
         from pistomp_recovery.ui.screens.menu_screen import MenuScreen
 
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             screen = self.app.current_screen()
-            if not isinstance(screen, MenuScreen) or screen._state != "PROGRESS":
+            if not isinstance(screen, MenuScreen) or screen._state not in ("PROGRESS", "TAIL"):
                 break
             time.sleep(0.05)
         self.inject()

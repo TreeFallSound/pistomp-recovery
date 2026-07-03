@@ -40,6 +40,9 @@ DEVICE_BRANCH: str = "device"
 
 FACET_NAMES: tuple[str, ...] = ("config", "pedalboards", "plugins", "packages", "boot")
 
+# apt source list file for the pi-gen-pistomp custom repo.
+PISTOMP_APT_SOURCE: str = "/etc/apt/sources.list.d/pistomp.list"
+
 # apt Release file `Origin:` / `Label:` value for the pi-gen-pistomp custom repo.
 # Used by AptManager.discover_packages() to identify which installed packages
 # came from the pistomp repo (rather than Debian/Raspbian base).

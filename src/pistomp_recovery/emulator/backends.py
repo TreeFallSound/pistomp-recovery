@@ -15,6 +15,7 @@ import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Callable
 
 import pygame
 
@@ -294,6 +295,21 @@ class EmulatorDataBackend(DataBackend):
 
     def refresh_package_db(self) -> None:
         pass
+
+    def refresh_package_db_streaming(
+        self, line_callback: Callable[[str], None], cancel_event: threading.Event
+    ) -> None:
+        lines = [
+            "Hit:1 https://sastraxi.github.io/pi-gen-pistomp trixie InRelease",
+            "Get:2 https://sastraxi.github.io/pi-gen-pistomp trixie/main arm64 Packages [1,234 B]",
+            "Fetched 1,234 B in 0s (12.3 kB/s)",
+            "Reading package lists... Done",
+        ]
+        for line in lines:
+            if cancel_event.is_set():
+                return
+            line_callback(line)
+            time.sleep(0.1)
 
     def package_detail(self, name: str) -> list[str]:
         return [

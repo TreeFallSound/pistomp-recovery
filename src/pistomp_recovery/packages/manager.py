@@ -10,10 +10,12 @@ from __future__ import annotations
 import logging
 import os
 import re
+import select
 import shutil
 import subprocess
+import threading
 from pathlib import Path
-from typing import Protocol
+from typing import Callable, Protocol
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +29,16 @@ class PackageManager(Protocol):
 
     def sync_db(self) -> bool:
         """Sync the package DB (apt-get update / pacman -Sy). Returns True on success."""
+        ...
+
+    def sync_db_restricted(
+        self, line_callback: Callable[[str], None], cancel_event: threading.Event
+    ) -> bool:
+        """Sync only the pistomp repo, streaming output lines via ``line_callback``.
+
+        ``cancel_event`` is checked between lines; when set the subprocess is
+        killed and the method returns False.  Returns True on success.
+        """
         ...
 
     def check_updates(self, names: tuple[str, ...]) -> list[tuple[str, str, str]]:
@@ -103,6 +115,40 @@ class PacmanManager:
         )
         self._synced = True
         return result.returncode == 0
+
+    def sync_db_restricted(
+        self, line_callback: Callable[[str], None], cancel_event: threading.Event
+    ) -> bool:
+        proc = subprocess.Popen(
+            ["sudo", "pacman", "-Sy"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        assert proc.stdout is not None
+        fd = proc.stdout.fileno()
+        buf = ""
+        while True:
+            if cancel_event.is_set():
+                proc.kill()
+                proc.wait()
+                return False
+            r, _, _ = select.select([fd], [], [], 0.1)
+            if fd in r:
+                chunk = os.read(fd, 4096).decode(errors="replace")
+                if not chunk:
+                    break
+                buf += chunk
+                while "\n" in buf:
+                    line, buf = buf.split("\n", 1)
+                    stripped = line.rstrip("\r")
+                    if stripped:
+                        line_callback(stripped)
+        if buf.rstrip("\r"):
+            line_callback(buf.rstrip("\r"))
+        proc.wait()
+        self._synced = True
+        return proc.returncode == 0
 
     def check_updates(self, names: tuple[str, ...]) -> list[tuple[str, str, str]]:
         if not self._synced:
@@ -242,6 +288,46 @@ class AptManager:
         )
         self._synced = True
         return result.returncode == 0
+
+    def sync_db_restricted(
+        self, line_callback: Callable[[str], None], cancel_event: threading.Event
+    ) -> bool:
+        from pistomp_recovery.constants import PISTOMP_APT_SOURCE
+
+        proc = subprocess.Popen(
+            [
+                "sudo", "apt-get", "update",
+                "-o", f"Dir::Etc::sourcelist={PISTOMP_APT_SOURCE}",
+                "-o", "Dir::Etc::SourceParts=-",
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        assert proc.stdout is not None
+        fd = proc.stdout.fileno()
+        buf = ""
+        while True:
+            if cancel_event.is_set():
+                proc.kill()
+                proc.wait()
+                return False
+            r, _, _ = select.select([fd], [], [], 0.1)
+            if fd in r:
+                chunk = os.read(fd, 4096).decode(errors="replace")
+                if not chunk:
+                    break
+                buf += chunk
+                while "\n" in buf:
+                    line, buf = buf.split("\n", 1)
+                    stripped = line.rstrip("\r")
+                    if stripped:
+                        line_callback(stripped)
+        if buf.rstrip("\r"):
+            line_callback(buf.rstrip("\r"))
+        proc.wait()
+        self._synced = True
+        return proc.returncode == 0
 
     def check_updates(self, names: tuple[str, ...]) -> list[tuple[str, str, str]]:
         if not self._synced:

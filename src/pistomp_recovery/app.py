@@ -24,7 +24,7 @@ from pistomp_recovery.ui.screens import Screen
 from pistomp_recovery.ui.screens.crash import CrashScreen
 from pistomp_recovery.ui.screens.log_view import LogViewScreen
 from pistomp_recovery.ui.screens.menu_screen import MenuScreen
-from pistomp_recovery.ui.widgets.header import ICON_BACK, ICON_EXIT
+from pistomp_recovery.ui.widgets.header import ICON_BACK, ICON_CANCEL, ICON_EXIT
 from pistomp_recovery.ui.widgets.misc import Box, InputEvent
 from pistomp_recovery.util import human_size
 
@@ -118,6 +118,7 @@ class RecoveryAppCore:
         )
 
         if self._boot_mode == BootMode.CRASH_RECOVERY:
+
             def _show_log() -> None:
                 log_lines = self._crash_info.crash_log_full.strip().split("\n")
                 log_screen = LogViewScreen(
@@ -236,8 +237,9 @@ class RecoveryAppCore:
         mode: str = "",
         domain: str = "",
         reload_callback: Callable[[], None] | None = None,
+        header_icon: Target | None = None,
     ) -> MenuScreen:
-        icon: Target = (
+        icon: Target = header_icon or (
             Target(ICON_BACK, self.pop_screen)
             if back
             else Target(ICON_EXIT, self._resume_main_app)
@@ -379,7 +381,8 @@ class RecoveryAppCore:
         threading.Thread(target=_fetch, daemon=True).start()
 
     def _show_updates_menu(self) -> None:
-        """Push the updates list directly, skipping the domain picker."""
+        """Push the updates list, streaming apt output to a live tail view."""
+        cancel_event = threading.Event()
         menu = self._push_menu(
             _MODE_TITLES[MODE_UPDATES],
             [],
@@ -388,15 +391,29 @@ class RecoveryAppCore:
             domain=DOMAIN_SYSTEM,
             reload_callback=lambda: self._refresh_domain(MODE_UPDATES, DOMAIN_SYSTEM),
         )
-        menu.set_progress(_MODE_TITLES[MODE_UPDATES], 0.0, "Wait a few seconds...", done=False)
+        menu.set_tail(_MODE_TITLES[MODE_UPDATES], lambda: cancel_event.set())
         self._mark_dirty(None)
 
         def _run() -> None:
-            self._backends.data.refresh_package_db()
+            def on_line(line: str) -> None:
+                menu.append_tail(line)
+                self._mark_dirty(None)
+
+            self._backends.data.refresh_package_db_streaming(on_line, cancel_event)
+            if cancel_event.is_set():
+                self.pop_screen()
+                return
+            menu.append_tail("")
+            menu.append_tail("Done.")
+            self._mark_dirty(None)
+            cancel_event.wait(0.5)
+            if cancel_event.is_set():
+                self.pop_screen()
+                return
             items = self._backends.data.domain_items(MODE_UPDATES, DOMAIN_SYSTEM)
             rows = self._build_domain_rows(items, MODE_UPDATES, DOMAIN_SYSTEM)
             menu.set_rows(rows)
-            menu.clear_progress()
+            menu.clear_tail()
             self._mark_dirty(None)
 
         threading.Thread(target=_run, daemon=True).start()

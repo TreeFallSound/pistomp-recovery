@@ -8,7 +8,7 @@ from pistomp_recovery.constants import LCD_HEIGHT, LCD_WIDTH
 from pistomp_recovery.ui.colors import COLORS
 from pistomp_recovery.ui.fonts import TEXT_DY, cell_size, get_font, text_width
 from pistomp_recovery.ui.screens import Screen
-from pistomp_recovery.ui.widgets.header import Header, ICON_BACK
+from pistomp_recovery.ui.widgets.header import ICON_BACK, Header
 from pistomp_recovery.ui.widgets.misc import Box, InputEvent
 
 _HSCROLL_STEP: int = 40

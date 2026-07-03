@@ -8,6 +8,7 @@ implementations; the emulator uses pygame, fake input, and in-memory stubs.
 
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass
 from typing import Callable, Protocol, runtime_checkable
 
@@ -97,6 +98,16 @@ class DataBackend(Protocol):
 
         Called from a background thread by the UI before loading the Updates
         picker.
+        """
+        ...
+
+    def refresh_package_db_streaming(
+        self, line_callback: Callable[[str], None], cancel_event: threading.Event
+    ) -> None:
+        """Sync only the pistomp repo, streaming output lines via ``line_callback``.
+
+        ``cancel_event`` is checked between lines; when set the operation is
+        aborted and the method returns early.  Called from a background thread.
         """
         ...
 

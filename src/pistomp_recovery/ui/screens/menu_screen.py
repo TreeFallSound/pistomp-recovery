@@ -66,6 +66,14 @@ class MenuScreen(Screen):
         self._sel: int = 0
         self._build_nav()
 
+        # TAIL state fields.
+        self._tail_lines: list[str] = []
+        self._tail_scroll: int = 0
+        self._tail_cancel: Callable[[], None] | None = None
+        self._tail_on_header: bool = True
+        self._saved_header_target: Target | None = None
+        self._saved_header_icon: str = ""
+
     # -- structure ----------------------------------------------------------
 
     def set_rows(self, rows: list[Row]) -> None:
@@ -123,6 +131,36 @@ class MenuScreen(Screen):
     def set_status(self, text: str) -> None:
         self._status_text = text
 
+    # -- tail (streaming output) --------------------------------------------
+
+    def set_tail(self, title: str, cancel_callback: Callable[[], None]) -> None:
+        self._saved_header_target = self._header_target
+        self._saved_header_icon = self._header.icon
+        self._header_target = Target("Cancel", cancel_callback)
+        self._header.icon = "Cancel"
+        self._header.title = title
+        self._state = "TAIL"
+        self._tail_lines = []
+        self._tail_scroll = 0
+        self._tail_cancel = cancel_callback
+        self._tail_on_header = True
+
+    def append_tail(self, line: str) -> None:
+        self._tail_lines.append(line)
+        lines: int = self._content_lines()
+        self._tail_scroll = max(0, len(self._tail_lines) - lines)
+
+    def clear_tail(self) -> None:
+        if self._saved_header_target is not None:
+            self._header_target = self._saved_header_target
+            self._header.icon = self._saved_header_icon
+            self._saved_header_target = None
+            self._saved_header_icon = ""
+        self._state = "LIST"
+        self._tail_lines = []
+        self._tail_cancel = None
+        self._build_nav()
+
     # -- geometry -----------------------------------------------------------
 
     def _content_top(self) -> int:
@@ -149,6 +187,8 @@ class MenuScreen(Screen):
     # -- input --------------------------------------------------------------
 
     def handle_event(self, event: InputEvent) -> list[Box]:
+        if self._state == "TAIL":
+            return self._handle_tail_event(event)
         if self._state == "PROGRESS":
             if self._progress_done and event == InputEvent.CLICK:
                 self.reload()
@@ -178,6 +218,34 @@ class MenuScreen(Screen):
             return [old_rect, new_rect]
         if event == InputEvent.CLICK:
             self._activate()
+            return [Box(0, 0, LCD_WIDTH, LCD_HEIGHT)]
+        return []
+
+    def _handle_tail_event(self, event: InputEvent) -> list[Box]:
+        if event == InputEvent.LEFT:
+            if self._tail_on_header:
+                self._tail_on_header = False
+                self._tail_scroll = max(0, len(self._tail_lines) - 1)
+            elif self._tail_scroll > 0:
+                self._tail_scroll -= 1
+            else:
+                self._tail_on_header = True
+            return [Box(0, 0, LCD_WIDTH, LCD_HEIGHT)]
+        if event == InputEvent.RIGHT:
+            if self._tail_on_header:
+                self._tail_on_header = False
+                self._tail_scroll = 0
+            else:
+                lines: int = self._content_lines()
+                max_scroll: int = max(0, len(self._tail_lines) - lines)
+                if self._tail_scroll < max_scroll:
+                    self._tail_scroll += 1
+                else:
+                    self._tail_on_header = True
+            return [Box(0, 0, LCD_WIDTH, LCD_HEIGHT)]
+        if event == InputEvent.CLICK and self._tail_on_header:
+            if self._tail_cancel is not None:
+                self._tail_cancel()
             return [Box(0, 0, LCD_WIDTH, LCD_HEIGHT)]
         return []
 
@@ -236,6 +304,10 @@ class MenuScreen(Screen):
         try:
             self._surface.fill(COLORS["bg"])
 
+            if self._state == "TAIL":
+                self._draw_tail()
+                return
+
             if self._state == "PROGRESS":
                 self._draw_progress()
                 return
@@ -264,6 +336,50 @@ class MenuScreen(Screen):
         if self._status_text:
             self._status.set_text(self._status_text)
             self._status.draw(self._surface)
+
+    def _draw_tail(self) -> None:
+        self._header.draw(self._surface, icon_selected=self._tail_on_header)
+        self._draw_tail_lines()
+
+    def _draw_tail_lines(self) -> None:
+        cw, ch = cell_size()
+        content_y0: int = self._content_top()
+        lines: int = self._content_lines()
+        end: int = min(self._tail_scroll + lines, len(self._tail_lines))
+        font = get_font()
+
+        for i in range(self._tail_scroll, end):
+            y: int = content_y0 + (i - self._tail_scroll) * ch
+            line: str = self._tail_lines[i]
+            selected: bool = i == self._tail_scroll and not self._tail_on_header
+
+            if selected:
+                self._surface.fill(
+                    COLORS["sel_bg"],
+                    pygame.Rect(0, y, LCD_WIDTH, ch),
+                )
+                color = COLORS["sel_fg"]
+            else:
+                color = COLORS["text"]
+
+            x: int = cw
+            surf = font.render(line, True, color)
+            self._surface.blit(surf, (x, y + TEXT_DY))
+
+        self._draw_tail_scrollbar(lines, content_y0)
+
+    def _draw_tail_scrollbar(self, lines: int, content_y0: int) -> None:
+        total: int = len(self._tail_lines)
+        if total <= lines:
+            return
+        ch: int = cell_size()[1]
+        track_h: int = lines * ch
+        bar_h: int = max(ch, track_h * lines // total)
+        max_off: int = max(1, total - lines)
+        bar_y: int = content_y0 + (track_h - bar_h) * self._tail_scroll // max_off
+        self._surface.fill(
+            COLORS["text_dim"], pygame.Rect(LCD_WIDTH - 2, bar_y, 2, bar_h)
+        )
 
     def _draw_rows(self) -> None:
         cw, ch = cell_size()

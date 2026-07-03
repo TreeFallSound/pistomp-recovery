@@ -30,6 +30,10 @@ class Display:
             self._lcd.init()
             self.update(self._surface)
 
+    def cleanup(self) -> None:
+        if self._lcd is not None:
+            self._lcd.cleanup()
+
     def update(self, surface: pygame.Surface, rects: list[Box] | None = None) -> None:
         if self._lcd is not None:
             self._lcd.update(surface, rects)

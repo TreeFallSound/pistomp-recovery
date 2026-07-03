@@ -11,6 +11,8 @@ class InputEvent(Enum):
     CLICK = auto()
     LONG_CLICK = auto()
     BACK = auto()
+    TWEAK1_LEFT = auto()
+    TWEAK1_RIGHT = auto()
 
 
 class Box:

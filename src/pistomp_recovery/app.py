@@ -22,6 +22,7 @@ from pistomp_recovery.items import Item, Row, Target
 from pistomp_recovery.service import BootMode, CrashInfo
 from pistomp_recovery.ui.screens import Screen
 from pistomp_recovery.ui.screens.crash import CrashScreen
+from pistomp_recovery.ui.screens.log_view import LogViewScreen
 from pistomp_recovery.ui.screens.menu_screen import MenuScreen
 from pistomp_recovery.ui.widgets.header import ICON_BACK, ICON_EXIT
 from pistomp_recovery.ui.widgets.misc import Box, InputEvent
@@ -117,10 +118,20 @@ class RecoveryAppCore:
         )
 
         if self._boot_mode == BootMode.CRASH_RECOVERY:
+            def _show_log() -> None:
+                log_lines = self._crash_info.crash_log_full.strip().split("\n")
+                log_screen = LogViewScreen(
+                    self.surface,
+                    log_lines,
+                    on_back=self.pop_screen,
+                )
+                self.push_screen(log_screen)
+
             screen: CrashScreen = CrashScreen(
                 self.surface,
                 on_resume=self._resume_main_app,
                 on_recovery=self._show_main_menu,
+                on_show_log=_show_log,
                 crash_info=self._crash_info,
             )
             self.push_screen(screen)
@@ -670,5 +681,8 @@ class RecoveryAppCore:
 
     def _resume_main_app(self) -> None:
         logger.info("Resuming main app")
+        # Release LCD GPIO pins before starting services so mod-ui's
+        # ExecStartPre=lcd-splash can claim them without a GPIO-busy error.
+        self._backends.display.cleanup()
         self._backends.services.start_main_app()
         self._running = False

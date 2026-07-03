@@ -35,6 +35,7 @@ class EmulatorApp:
             boot_mode=boot_mode,
             failed_service=None,
             crash_log="",
+            crash_log_full="",
             service_states={},
         )
         self._core: RecoveryAppCore = RecoveryAppCore(self._backends, crash_info)

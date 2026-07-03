@@ -24,7 +24,7 @@ from pistomp_recovery.backends import (
 )
 from pistomp_recovery.constants import DOMAIN_FACETS, services_for_packages
 from pistomp_recovery.facet import Facet, all_facets, register_default_facets
-from pistomp_recovery.hardware.encoder import EncoderInput
+from pistomp_recovery.hardware.encoder import EncoderInput, NAV_PIN_CLK, NAV_PIN_D, TWEAK1_PIN_CLK, TWEAK1_PIN_D
 from pistomp_recovery.hardware.lcd import LcdSpi
 from pistomp_recovery.hardware.switch import AdcSwitch
 from pistomp_recovery.items import Item
@@ -59,6 +59,9 @@ class LcdDisplayBackend(DisplayBackend):
     def init(self) -> None:
         self._display.init()
 
+    def cleanup(self) -> None:
+        self._display.cleanup()
+
     def update(self, surface: pygame.Surface, rects: list[Box] | None = None) -> None:
         self._display.update(surface, rects)
 
@@ -70,9 +73,10 @@ class GpioInputBackend(InputBackend):
     """Rotary encoder + switch on real GPIO/ADC."""
 
     def __init__(self) -> None:
-        self._encoder: EncoderInput = EncoderInput()
+        self._encoder: EncoderInput = EncoderInput(pin_d=NAV_PIN_D, pin_clk=NAV_PIN_CLK)
+        self._tweak1: EncoderInput = EncoderInput(pin_d=TWEAK1_PIN_D, pin_clk=TWEAK1_PIN_CLK)
         self._switch: AdcSwitch = AdcSwitch()
-        self._input: InputManager = InputManager(self._encoder, self._switch)
+        self._input: InputManager = InputManager(self._encoder, self._switch, tweak1=self._tweak1)
 
     def start(self) -> None:
         # InputManager owns starting/stopping the encoder and switch; calling

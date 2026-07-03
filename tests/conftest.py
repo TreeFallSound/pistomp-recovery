@@ -86,6 +86,9 @@ class FakeDisplayBackend:
     def init(self) -> None:
         self._has_splash = True
 
+    def cleanup(self) -> None:
+        pass
+
     def update(self, surface: pygame.Surface, rects: list[Box] | None = None) -> None:
         rgb = pygame.image.tostring(surface, "RGB")
         img = Image.frombytes("RGB", (self.width, self.height), rgb)
@@ -128,8 +131,9 @@ class FakeEncoder:
 class FakeInputBackend:
     """Input backend backed by FakeEncoder, with click injection."""
 
-    def __init__(self, encoder: FakeEncoder) -> None:
+    def __init__(self, encoder: FakeEncoder, tweak1: FakeEncoder | None = None) -> None:
         self._encoder = encoder
+        self._tweak1 = tweak1 or FakeEncoder()
         self._click_queue: list[bool] = []
 
     def start(self) -> None:
@@ -148,6 +152,11 @@ class FakeInputBackend:
             events.append(InputEvent.RIGHT)
         elif direction < 0:
             events.append(InputEvent.LEFT)
+        tweak_dir: int = self._tweak1.poll()
+        if tweak_dir > 0:
+            events.append(InputEvent.TWEAK1_RIGHT)
+        elif tweak_dir < 0:
+            events.append(InputEvent.TWEAK1_LEFT)
         if self._click_queue:
             long = self._click_queue.pop(0)
             events.append(InputEvent.LONG_CLICK if long else InputEvent.CLICK)
@@ -284,6 +293,7 @@ class FakeServiceBackend:
             boot_mode=BootMode.USER_RECOVERY,
             failed_service=None,
             crash_log="",
+            crash_log_full="",
             service_states={s: "active" for s in services},
         )
 
@@ -305,6 +315,7 @@ class FakeServiceBackend:
             boot_mode=BootMode.CRASH_RECOVERY,
             failed_service="mod-host",
             crash_log="boom",
+            crash_log_full="boom",
             service_states={},
         )
 
@@ -452,6 +463,7 @@ def recovery_app(
             boot_mode=fake_services.boot_mode,
             failed_service=None,
             crash_log="",
+            crash_log_full="",
             service_states={},
         ),
     )

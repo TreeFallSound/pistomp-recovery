@@ -9,6 +9,8 @@ logger = logging.getLogger(__name__)
 
 NAV_PIN_D: int = 17
 NAV_PIN_CLK: int = 4
+TWEAK1_PIN_D: int = 12
+TWEAK1_PIN_CLK: int = 25
 
 # Number of attempts (with backoff) to claim the encoder pins. When pi-stomp
 # stops (Conflicts=), its process must fully release the GPIO lines before we
@@ -19,7 +21,7 @@ _CLAIM_BACKOFF_SEC: float = 0.5
 
 
 class EncoderInput:
-    """Quadrature decoder for the nav encoder.
+    """Quadrature decoder for an encoder.
 
     Uses gpiozero.Button on both phases exactly like pi-stomp's pistomp/encoder.py
     (Button defaults to pull_up=True / active-low), driving the same gray-code
@@ -27,7 +29,7 @@ class EncoderInput:
     per-detent callback so RecoveryApp can drain rotation each frame.
     """
 
-    def __init__(self, pin_d: int = NAV_PIN_D, pin_clk: int = NAV_PIN_CLK) -> None:
+    def __init__(self, pin_d: int, pin_clk: int) -> None:
         self._pin_d: int = pin_d
         self._pin_clk: int = pin_clk
         self._direction: int = 0
@@ -128,3 +130,6 @@ class EncoderInput:
             d: int = self._direction
             self._direction = 0
         return d
+
+
+

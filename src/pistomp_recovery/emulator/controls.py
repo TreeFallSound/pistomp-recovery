@@ -31,8 +31,9 @@ class FakeEncoderInput:
 class FakeInputManager:
     """InputManager backed by FakeEncoderInput, with click injection."""
 
-    def __init__(self, encoder: FakeEncoderInput) -> None:
+    def __init__(self, encoder: FakeEncoderInput, tweak1: FakeEncoderInput) -> None:
         self._encoder: FakeEncoderInput = encoder
+        self._tweak1: FakeEncoderInput = tweak1
         self._event_queue: list[InputEvent] = []
 
     def start(self) -> None:
@@ -52,6 +53,12 @@ class FakeInputManager:
             events.append(InputEvent.RIGHT)
         elif direction < 0:
             events.append(InputEvent.LEFT)
+
+        tweak_dir: int = self._tweak1.poll()
+        if tweak_dir > 0:
+            events.append(InputEvent.TWEAK1_RIGHT)
+        elif tweak_dir < 0:
+            events.append(InputEvent.TWEAK1_LEFT)
 
         events.extend(self._event_queue)
         self._event_queue.clear()

@@ -10,6 +10,7 @@ Layout (total 640x552):
 
 Keyboard shortcuts:
   ← / →       nav encoder left / right
+  A / D        tweak1 encoder left / right
   Enter        click (select)
   L            long click (back / cancel)
   Esc          quit
@@ -26,7 +27,7 @@ from pistomp_recovery.ui.widgets.misc import Box, InputEvent
 
 # Dimensions
 LCD_SCALE: int = 2
-CTRL_H: int = 72
+CTRL_H: int = 100
 LCD_W: int = 320
 LCD_H: int = 240
 
@@ -58,9 +59,9 @@ class EmulatorWindow:
         self.font = SafeFont(None, 18)
 
         btn_y: int = self.disp_h + 8
-        btn_h: int = 36
-        btn_w: int = 64
-        gap: int = 8
+        btn_h: int = 28
+        btn_w: int = 56
+        gap: int = 4
         x: int = gap
 
         self._buttons: list[tuple[pygame.Rect, InputEvent, str]] = []
@@ -74,8 +75,19 @@ class EmulatorWindow:
             self._buttons.append((rect, event, _label))
             x += btn_w + gap
 
+        # Second row for tweak controls
+        x = gap
+        btn_y2: int = btn_y + btn_h + 4
+        for _label, event in [
+            ("Tweak←", InputEvent.TWEAK1_LEFT),
+            ("Tweak→", InputEvent.TWEAK1_RIGHT),
+        ]:
+            rect = pygame.Rect(x, btn_y2, btn_w, btn_h)
+            self._buttons.append((rect, event, _label))
+            x += btn_w + gap
+
         # Help text area
-        self._help_y: int = btn_y + btn_h + 4
+        self._help_y: int = btn_y2 + btn_h + 4
         self._help_font = SafeFont(None, 14)
 
     def process_events(self) -> bool:
@@ -97,6 +109,10 @@ class EmulatorWindow:
             self._send_event(InputEvent.LEFT)
         elif key == pygame.K_RIGHT:
             self._send_event(InputEvent.RIGHT)
+        elif key == pygame.K_a:
+            self._send_event(InputEvent.TWEAK1_LEFT)
+        elif key == pygame.K_d:
+            self._send_event(InputEvent.TWEAK1_RIGHT)
         elif key in (pygame.K_RETURN, pygame.K_SPACE):
             self._send_event(InputEvent.CLICK)
         elif key == pygame.K_l:
@@ -129,7 +145,7 @@ class EmulatorWindow:
             self.screen.blit(text_surf, text_rect)
 
         # Help line
-        help_text: str = "←/→ navigate  |  Click = select  |  Long = back/cancel"
+        help_text: str = "←/→ nav  |  A/D tweak1  |  Click = select  |  Long = back/cancel"
         help_surf = self._help_font.render(help_text, True, (160, 160, 160))
         self.screen.blit(help_surf, (8, self._help_y))
 

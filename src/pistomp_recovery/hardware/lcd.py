@@ -46,6 +46,8 @@ class LcdSpi:
         self._baudrate: int = baudrate
         self._flip: bool = flip
         self._disp: object | None = None
+        self._cs_pin: object | None = None
+        self._dc_pin: object | None = None
         self._lock: threading.Lock = threading.Lock()
         self._pixels: "object | None" = None  # numpy.ndarray, allocated in init()
 
@@ -71,16 +73,16 @@ class LcdSpi:
             raise
 
         spi = board.SPI()  # type: ignore[union-attr]
-        cs_pin = digitalio.DigitalInOut(board.CE0)  # type: ignore[union-attr]
-        dc_pin = digitalio.DigitalInOut(board.D6)  # type: ignore[union-attr]
+        self._cs_pin = digitalio.DigitalInOut(board.CE0)  # type: ignore[union-attr]
+        self._dc_pin = digitalio.DigitalInOut(board.D6)  # type: ignore[union-attr]
         rst_pin = digitalio.DigitalInOut(board.D5)  # type: ignore[union-attr]
 
         rst = None if self.has_system_splash else rst_pin  # type: ignore[assignment]
 
         self._disp = ili9341.ILI9341(  # type: ignore[union-attr]
             spi,
-            cs=cs_pin,
-            dc=dc_pin,
+            cs=self._cs_pin,
+            dc=self._dc_pin,
             rst=rst,
             baudrate=self._baudrate,
         )
@@ -223,6 +225,22 @@ class LcdSpi:
             pixels_bytes: bytes = pix.tobytes()
 
             self._disp._block(x1, y1, x1 + sw - 1, y1 + sh - 1, pixels_bytes)  # type: ignore[union-attr]
+
+    def cleanup(self) -> None:
+        """Release GPIO pins so the next process (lcd-splash) can claim them."""
+        if self._cs_pin is not None:
+            try:
+                self._cs_pin.deinit()  # type: ignore[union-attr]
+            except Exception:
+                pass
+            self._cs_pin = None
+        if self._dc_pin is not None:
+            try:
+                self._dc_pin.deinit()  # type: ignore[union-attr]
+            except Exception:
+                pass
+            self._dc_pin = None
+        self._disp = None
 
     def clear(self) -> None:
         if self._disp is not None:

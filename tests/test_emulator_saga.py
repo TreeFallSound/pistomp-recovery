@@ -10,6 +10,7 @@ live files and stamps.
 from __future__ import annotations
 
 from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
 
@@ -24,14 +25,27 @@ from pistomp_recovery.emulator.backends import (
 from pistomp_recovery.emulator.controls import FakeEncoderInput
 from pistomp_recovery.service import BootMode, CrashInfo
 from pistomp_recovery.ui.widgets.misc import InputEvent
-from tests.conftest import AppHarness
+from tests.conftest import AppHarness, FakeDisplayBackend, assert_snapshot
+
+_SNAPSHOT_DIR = Path(__file__).parent / "snapshots"
+
+
+def _snap(harness: AppHarness, name: str, update: bool = False) -> None:
+    display = harness.display
+    assert isinstance(display, FakeDisplayBackend)
+    assert_snapshot(
+        display.frames[-1],
+        f"test_emulator_saga/{name}",
+        update=update,
+    )
 
 
 @pytest.fixture
 def emulator_harness() -> Iterator[AppHarness]:
     display = PygameDisplayBackend()
     encoder = FakeEncoderInput()
-    inp = FakeInputBackend(encoder)
+    tweak1 = FakeEncoderInput()
+    inp = FakeInputBackend(encoder, tweak1)
     data = EmulatorDataBackend()
     services = EmulatorServiceBackend(BootMode.USER_RECOVERY)
 
@@ -41,6 +55,7 @@ def emulator_harness() -> Iterator[AppHarness]:
             boot_mode=BootMode.USER_RECOVERY,
             failed_service=None,
             crash_log="",
+            crash_log_full="",
             service_states={},
         ),
     )
@@ -280,3 +295,163 @@ class TestCheckpointEmptyWhenClean:
         # Carbon-Copy and factory-defaults are unstamped — should not appear.
         assert "Carbon-Copy.pedalboard" not in rows
         assert "factory-defaults.pedalboard" not in rows
+
+
+class TestCrashScreenAndLogView:
+    """Crash screen textarea, tweak1 scroll, and fullscreen log view."""
+
+    @pytest.fixture
+    def crash_harness(self) -> Iterator[AppHarness]:
+        display = FakeDisplayBackend()
+        encoder = FakeEncoderInput()
+        tweak1 = FakeEncoderInput()
+        inp = FakeInputBackend(encoder, tweak1)
+        data = EmulatorDataBackend()
+        services = EmulatorServiceBackend(BootMode.CRASH_RECOVERY)
+
+        crash_info = CrashInfo(
+            boot_mode=BootMode.CRASH_RECOVERY,
+            failed_service="mod-ala-pi-stomp",
+            crash_log=(
+                "INFO:root:Loading pedalboard info: Beths\n"
+                "INFO:root:Loading pedalboard info: Default\n"
+                "ERROR:root:Failed to load pedalboard: Beths\n"
+                "Traceback (most recent call last):\n"
+                "  File 'modalapistomp.py', line 142\n"
+                "    handler.load_pedalboard(name)\n"
+                "ValueError: invalid pedalboard format"
+            ),
+            crash_log_full=(
+                "INFO:root:Loading pedalboard info: All EQ\n"
+                "INFO:root:Loading pedalboard info: Bassguy\n"
+                "INFO:root:Loading pedalboard info: Beths\n"
+                "INFO:root:Loading pedalboard info: Default\n"
+                "ERROR:root:Failed to load pedalboard: Beths\n"
+                "Traceback (most recent call last):\n"
+                "  File 'modalapistomp.py', line 142\n"
+                "    handler.load_pedalboard(name)\n"
+                "ValueError: invalid pedalboard format"
+            ),
+            service_states={
+                "jack": "active",
+                "mod-host": "active",
+                "mod-ui": "active",
+                "mod-ala-pi-stomp": "failed",
+            },
+        )
+        app = RecoveryAppCore(
+            AppBackends(display=display, input=inp, data=data, services=services),
+            crash_info,
+        )
+        app.init()
+        harness = AppHarness(app, display)
+        yield harness
+        app.cleanup()
+
+    def test_crash_screen_shows_service_states_and_log_textarea(
+        self, crash_harness: AppHarness, snapshot_update: bool
+    ) -> None:
+        harness = crash_harness
+        harness.inject()
+        _snap(harness, "crash_screen_initial", update=snapshot_update)
+
+        labels = harness.nav_labels()
+        assert "RESUME" in labels
+        assert "RECOVERY" in labels
+        # The textarea target has an empty label, so it won't appear in nav_labels.
+        # But it should be navigable — check that there are 4 nav items (header, textarea, RESUME, RECOVERY)
+        assert len(labels) == 4
+
+    def test_crash_screen_tweak1_scrolls_textarea(
+        self, crash_harness: AppHarness, snapshot_update: bool
+    ) -> None:
+        harness = crash_harness
+        harness.inject()
+        # Textarea is the first real target (selected by default)
+        _snap(harness, "crash_textarea_selected", update=snapshot_update)
+
+        harness.inject(InputEvent.TWEAK1_RIGHT)
+        _snap(harness, "crash_textarea_scrolled", update=snapshot_update)
+
+        harness.inject(InputEvent.TWEAK1_LEFT)
+        _snap(harness, "crash_textarea_back", update=snapshot_update)
+
+    def test_crash_screen_click_opens_log_view(
+        self, crash_harness: AppHarness, snapshot_update: bool
+    ) -> None:
+        harness = crash_harness
+        harness.inject()
+
+        harness.inject(InputEvent.CLICK)
+        harness.inject()
+        _snap(harness, "log_view_initial", update=snapshot_update)
+
+        from pistomp_recovery.ui.screens.log_view import LogViewScreen
+        assert isinstance(harness.app.current_screen(), LogViewScreen)
+
+    def test_log_view_nav_scrolls_lines(
+        self, crash_harness: AppHarness, snapshot_update: bool
+    ) -> None:
+        harness = crash_harness
+        harness.inject()
+
+        harness.inject(InputEvent.CLICK)
+        harness.inject()
+        _snap(harness, "log_view_line_0", update=snapshot_update)
+
+        harness.inject(InputEvent.RIGHT)
+        _snap(harness, "log_view_line_1", update=snapshot_update)
+
+        harness.inject(InputEvent.RIGHT)
+        _snap(harness, "log_view_line_2", update=snapshot_update)
+
+    def test_log_view_tweak1_scrolls_horizontally(
+        self, crash_harness: AppHarness, snapshot_update: bool
+    ) -> None:
+        harness = crash_harness
+        harness.inject()
+
+        harness.inject(InputEvent.CLICK)
+        harness.inject()
+
+        harness.inject(InputEvent.TWEAK1_RIGHT)
+        _snap(harness, "log_view_hscroll_1", update=snapshot_update)
+
+        harness.inject(InputEvent.TWEAK1_RIGHT)
+        _snap(harness, "log_view_hscroll_2", update=snapshot_update)
+
+    def test_log_view_long_click_returns_to_crash(
+        self, crash_harness: AppHarness, snapshot_update: bool
+    ) -> None:
+        harness = crash_harness
+        harness.inject()
+
+        harness.inject(InputEvent.CLICK)
+        harness.inject()
+
+        harness.inject(InputEvent.LONG_CLICK)
+        _snap(harness, "back_to_crash_from_long_click", update=snapshot_update)
+
+        from pistomp_recovery.ui.screens.crash import CrashScreen
+        assert isinstance(harness.app.current_screen(), CrashScreen)
+
+    def test_log_view_header_back_returns_to_crash(
+        self, crash_harness: AppHarness, snapshot_update: bool
+    ) -> None:
+        harness = crash_harness
+        harness.inject()
+
+        harness.inject(InputEvent.CLICK)
+        harness.inject()
+
+        # Navigate to the first line (we start at the last)
+        for _ in range(len(harness.app.current_screen()._lines)):
+            harness.inject(InputEvent.LEFT)
+        harness.inject()
+        _snap(harness, "log_view_header_selected", update=snapshot_update)
+
+        harness.inject(InputEvent.CLICK)
+        _snap(harness, "back_to_crash_from_header", update=snapshot_update)
+
+        from pistomp_recovery.ui.screens.crash import CrashScreen
+        assert isinstance(harness.app.current_screen(), CrashScreen)

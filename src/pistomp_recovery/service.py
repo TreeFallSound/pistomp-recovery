@@ -33,6 +33,7 @@ class CrashInfo:
     boot_mode: BootMode
     failed_service: str | None
     crash_log: str
+    crash_log_full: str
     service_states: dict[str, str]
 
 
@@ -66,14 +67,17 @@ def diagnose_services(services: list[str]) -> CrashInfo:
             failed_service = svc
 
     crash_log: str = ""
+    crash_log_full: str = ""
     if failed_service:
         crash_log = service_journal(failed_service, lines=10)
+        crash_log_full = service_journal(failed_service, lines=100)
 
     boot_mode = BootMode.CRASH_RECOVERY if failed_service else BootMode.USER_RECOVERY
     return CrashInfo(
         boot_mode=boot_mode,
         failed_service=failed_service,
         crash_log=crash_log,
+        crash_log_full=crash_log_full,
         service_states=states,
     )
 

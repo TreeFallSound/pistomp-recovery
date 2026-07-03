@@ -57,6 +57,9 @@ class PygameDisplayBackend(DisplayBackend):
     def init(self) -> None:
         self._surface.fill((0, 0, 0))
 
+    def cleanup(self) -> None:
+        pass
+
     def update(self, surface: pygame.Surface, rects: list[Box] | None = None) -> None:
         if surface is not self._surface:
             self._surface.blit(surface, (0, 0))
@@ -69,9 +72,10 @@ class PygameDisplayBackend(DisplayBackend):
 class FakeInputBackend(InputBackend):
     """Keyboard-driven fake encoder + switch input."""
 
-    def __init__(self, encoder: FakeEncoderInput) -> None:
+    def __init__(self, encoder: FakeEncoderInput, tweak1: FakeEncoderInput) -> None:
         self._encoder: FakeEncoderInput = encoder
-        self._input: FakeInputManager = FakeInputManager(self._encoder)
+        self._tweak1: FakeEncoderInput = tweak1
+        self._input: FakeInputManager = FakeInputManager(self._encoder, self._tweak1)
 
     def start(self) -> None:
         pass
@@ -426,6 +430,7 @@ class EmulatorServiceBackend(ServiceBackend):
             boot_mode=BootMode.USER_RECOVERY,
             failed_service=None,
             crash_log="",
+            crash_log_full="",
             service_states={s: "active" for s in services},
         )
 
@@ -451,6 +456,13 @@ class EmulatorServiceBackend(ServiceBackend):
                 "AttributeError: 'NoneType' object"
                 " has no attribute 'poll_controls'"
             ),
+            crash_log_full=(
+                "Traceback (most recent call last):\n"
+                "  File 'modalapistomp.py', line 42\n"
+                "    handler.poll_controls()\n"
+                "AttributeError: 'NoneType' object"
+                " has no attribute 'poll_controls'"
+            ),
             service_states={
                 "jack": "active",
                 "mod-host": "failed",
@@ -464,7 +476,7 @@ def make_emulator_backends(boot_mode: BootMode = BootMode.USER_RECOVERY) -> AppB
     """Create emulator backends wired to real recovery facets on temp data."""
     return AppBackends(
         display=PygameDisplayBackend(),
-        input=FakeInputBackend(FakeEncoderInput()),
+        input=FakeInputBackend(FakeEncoderInput(), FakeEncoderInput()),
         data=EmulatorDataBackend(),
         services=EmulatorServiceBackend(boot_mode),
     )

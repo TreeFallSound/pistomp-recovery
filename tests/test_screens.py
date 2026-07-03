@@ -486,6 +486,7 @@ def test_crash_recovery_boot(
             boot_mode=BootMode.CRASH_RECOVERY,
             failed_service=None,
             crash_log="",
+            crash_log_full="",
             service_states={},
         ),
     )
@@ -508,6 +509,11 @@ def test_crash_screen_snapshot(
         boot_mode=BootMode.CRASH_RECOVERY,
         failed_service="jack",
         crash_log=(
+            "ALSA lib pcm.c:2664: Unknown PCM cards.pcm.front\n"
+            "jackd: Failed to initialize backend\n"
+            "jack: server is not running or cannot be started"
+        ),
+        crash_log_full=(
             "ALSA lib pcm.c:2664: Unknown PCM cards.pcm.front\n"
             "jackd: Failed to initialize backend\n"
             "jack: server is not running or cannot be started"
@@ -561,6 +567,7 @@ def test_resume_starts_main_app(
             boot_mode=BootMode.USER_RECOVERY,
             failed_service=None,
             crash_log="",
+            crash_log_full="",
             service_states={},
         ),
     )
@@ -624,6 +631,7 @@ def test_restart_jack_failure(
         boot_mode=BootMode.CRASH_RECOVERY,
         failed_service="jack",
         crash_log="ALSA: cannot find card\nJACK: server failed",
+        crash_log_full="ALSA: cannot find card\nJACK: server failed",
         service_states={"jack": "failed"},
     )
     services = FakeServiceBackend(restart_diagnosis=failing_diagnosis)
@@ -638,6 +646,7 @@ def test_restart_jack_failure(
             boot_mode=BootMode.USER_RECOVERY,
             failed_service=None,
             crash_log="",
+            crash_log_full="",
             service_states={},
         ),
     )

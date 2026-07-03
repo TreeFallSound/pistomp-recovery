@@ -14,11 +14,11 @@ from pistomp_recovery.ui.widgets.header import Header
 from pistomp_recovery.ui.widgets.misc import Box, InputEvent
 from pistomp_recovery.ui.widgets.text import ProgressBar, StatusLine
 
-_SEP: str = " | "
+SEP: str = " | "
 
 # Navigation position: (row index, target index). The header icon is (-1, 0).
 NavPos = tuple[int, int]
-_HEADER: NavPos = (-1, 0)
+HEADER: NavPos = (-1, 0)
 
 
 class MenuScreen(Screen):
@@ -88,7 +88,7 @@ class MenuScreen(Screen):
             self._reload_callback()
 
     def _build_nav(self) -> None:
-        nav: list[NavPos] = [_HEADER]
+        nav: list[NavPos] = [HEADER]
         for r, row in enumerate(self._rows):
             for ti, target in enumerate(row.targets):
                 if target.enabled:
@@ -99,7 +99,7 @@ class MenuScreen(Screen):
         self._scroll_into_view()
 
     def _target_at(self, pos: NavPos) -> Target:
-        if pos == _HEADER:
+        if pos == HEADER:
             return self._header_target
         return self._rows[pos[0]].targets[pos[1]]
 
@@ -185,7 +185,7 @@ class MenuScreen(Screen):
         """Bounding rect of the current selection (for dirty tracking)."""
         pos: NavPos = self._nav[self._sel]
         ch: int = cell_size()[1]
-        if pos == _HEADER:
+        if pos == HEADER:
             return Box(0, 0, LCD_WIDTH, ch)
         content_y0: int = self._content_top()
         r: int = pos[0]
@@ -288,10 +288,10 @@ class MenuScreen(Screen):
             for ti, target in enumerate(row.targets):
                 if ti > 0:
                     sep_surf: pygame.Surface = get_font().render(
-                        _SEP, True, COLORS["text_dim"]
+                        SEP, True, COLORS["text_dim"]
                     )
                     self._surface.blit(sep_surf, (x, y + TEXT_DY))
-                    x += text_width(_SEP)
+                    x += text_width(SEP)
                 x = self._draw_target(target, x, y, selected=sel_pos == (r, ti))
 
             if row.right:

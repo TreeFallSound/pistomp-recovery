@@ -83,7 +83,6 @@ class CrashScreen(MenuScreen):
         return ch
 
     def _total_visual_height(self) -> int:
-        ch: int = cell_size()[1]
         total = 0
         for i in range(len(self._rows)):
             total += self._row_visual_height(i)
@@ -120,7 +119,7 @@ class CrashScreen(MenuScreen):
         on_textarea = sel_pos != HEADER and sel_pos[0] == textarea_idx
 
         if on_textarea and event in (InputEvent.TWEAK1_LEFT, InputEvent.TWEAK1_RIGHT):
-            max_w = max(text_width(l) for l in self._log_lines) if self._log_lines else 0
+            max_w = max(text_width(line) for line in self._log_lines) if self._log_lines else 0
             view_w = LCD_WIDTH - cell_size()[0] * 2
             if event == InputEvent.TWEAK1_RIGHT:
                 self._hscroll = max(0, self._hscroll - _HSCROLL_STEP)
@@ -155,7 +154,7 @@ class CrashScreen(MenuScreen):
         return content_y0 + offset - self._scroll * ch
 
     def _draw_rows(self) -> None:
-        cw, ch = cell_size()
+        cw, _ch = cell_size()
         content_y0: int = self._content_top()
         content_h: int = LCD_HEIGHT - content_y0
         sel_pos = self._nav[self._sel]
@@ -199,7 +198,7 @@ class CrashScreen(MenuScreen):
                 )
                 self._surface.blit(right_surf, (LCD_WIDTH - rw - cw, y + TEXT_DY))
 
-        self._draw_scrollbar(content_y0, content_h)
+        self._draw_scrollbar(content_h, content_y0)
 
     def _draw_textarea(self, y: int, selected: bool) -> None:
         cw, ch = cell_size()
@@ -215,14 +214,14 @@ class CrashScreen(MenuScreen):
             surf = font.render(line, True, COLORS["text"])
             self._surface.blit(surf, (x, line_y + TEXT_DY))
 
-    def _draw_scrollbar(self, content_y0: int, content_h: int) -> None:
+    def _draw_scrollbar(self, lines: int, content_y0: int) -> None:
         total_h: int = self._total_visual_height()
-        if total_h <= content_h:
+        if total_h <= lines:
             return
         ch: int = cell_size()[1]
-        bar_h: int = max(ch, content_h * content_h // total_h)
-        max_off: int = max(1, total_h - content_h)
-        bar_y: int = content_y0 + (content_h - bar_h) * (self._scroll * ch) // max_off
+        bar_h: int = max(ch, lines * lines // total_h)
+        max_off: int = max(1, total_h - lines)
+        bar_y: int = content_y0 + (lines - bar_h) * (self._scroll * ch) // max_off
         self._surface.fill(
             COLORS["text_dim"], pygame.Rect(LCD_WIDTH - 2, bar_y, 2, bar_h)
         )

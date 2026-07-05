@@ -274,7 +274,7 @@ class PluginFacet:
         for bundle in self._user_bundles():
             self.remove_bundle(bundle.name)
 
-    def rollback(self, name: str, _target: RollbackTarget) -> None:
+    def rollback(self, name: str, target: RollbackTarget) -> None:
         # Plugins have no per-stamp content history; both targets mean "delete
         # the user-installed bundle." Factory plugins live in the system LV2
         # path and are unaffected.

@@ -33,7 +33,7 @@ from pistomp_recovery.ui.screens import Screen
 from pistomp_recovery.ui.screens.crash import CrashScreen
 from pistomp_recovery.ui.screens.log_view import LogViewScreen
 from pistomp_recovery.ui.screens.menu_screen import MenuScreen
-from pistomp_recovery.ui.widgets.header import ICON_BACK, ICON_CANCEL, ICON_EXIT
+from pistomp_recovery.ui.widgets.header import ICON_BACK, ICON_EXIT
 from pistomp_recovery.ui.widgets.misc import Box, InputEvent
 from pistomp_recovery.util import human_size
 

@@ -29,7 +29,7 @@ class LogViewScreen(Screen):
     ) -> None:
         super().__init__(surface)
         self._lines: list[str] = lines
-        self._on_back: Callable[[], None] = on_back
+        self._on_back: Callable[[], None] | None = on_back
         self._header: Header = Header("Crash Log", ICON_BACK)
         self._scroll: int = max(0, len(lines) - self._content_lines())
         self._hscroll: int = 0
@@ -121,15 +121,15 @@ class LogViewScreen(Screen):
             self._hscroll = max(0, self._hscroll - _HSCROLL_STEP)
             return [Box(0, 0, LCD_WIDTH, LCD_HEIGHT)]
         if event == InputEvent.TWEAK1_RIGHT:
-            max_w = max(text_width(l) for l in self._lines) if self._lines else 0
+            max_w = max(text_width(line) for line in self._lines) if self._lines else 0
             view_w = LCD_WIDTH - cell_size()[0] * 2
             self._hscroll = min(max(0, max_w - view_w), self._hscroll + _HSCROLL_STEP)
             return [Box(0, 0, LCD_WIDTH, LCD_HEIGHT)]
         if event == InputEvent.CLICK and self._on_header:
-            self._on_back()
+            self._go_back()
             return [Box(0, 0, LCD_WIDTH, LCD_HEIGHT)]
         if event == InputEvent.LONG_CLICK:
-            self._on_back()
+            self._go_back()
             return [Box(0, 0, LCD_WIDTH, LCD_HEIGHT)]
         return []
 

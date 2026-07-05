@@ -481,9 +481,15 @@ class EmulatorServiceBackend(ServiceBackend):
             ),
             service_states={
                 "jack": "active",
-                "mod-host": "failed",
+                "mod-host": "activating",
                 "mod-ui": "inactive",
                 "mod-ala-pi-stomp": "inactive",
+            },
+            service_results={
+                "jack": "success",
+                "mod-host": "exit-code",
+                "mod-ui": "success",
+                "mod-ala-pi-stomp": "success",
             },
         )
 

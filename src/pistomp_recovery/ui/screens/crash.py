@@ -6,7 +6,7 @@ import pygame
 
 from pistomp_recovery.constants import LCD_HEIGHT, LCD_WIDTH
 from pistomp_recovery.items import Row, Target
-from pistomp_recovery.service import CrashInfo
+from pistomp_recovery.service import CrashInfo, is_crash_result
 from pistomp_recovery.ui.colors import COLORS
 from pistomp_recovery.ui.fonts import TEXT_DY, cell_size, get_font, text_width
 from pistomp_recovery.ui.screens.menu_screen import HEADER, SEP, MenuScreen
@@ -39,8 +39,12 @@ class CrashScreen(MenuScreen):
         rows: list[Row] = []
         if crash_info is not None:
             for svc, state in crash_info.service_states.items():
-                marker: str = "  <--" if state == "failed" else ""
-                rows.append(Row(prefix=f"{svc}: {state}{marker}"))
+                result: str = crash_info.service_results.get(svc, "")
+                crashed: bool = state == "failed" or is_crash_result(result)
+                is_failed: bool = crash_info.failed_service == svc
+                marker: str = "  <--" if is_failed else ""
+                label: str = "crashed" if crashed else state
+                rows.append(Row(prefix=f"{svc}: {label}{marker}"))
 
             if crash_info.crash_log:
                 self._log_lines = crash_info.crash_log.strip().split("\n")[-_TEXTAREA_LINES:]

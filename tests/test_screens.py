@@ -667,10 +667,16 @@ def test_crash_screen_snapshot(
             "jack: server is not running or cannot be started"
         ),
         service_states={
-            "jack": "inactive",
+            "jack": "failed",
             "mod-host": "inactive",
             "mod-ui": "inactive",
             "mod-ala-pi-stomp": "inactive",
+        },
+        service_results={
+            "jack": "exit-code",
+            "mod-host": "success",
+            "mod-ui": "success",
+            "mod-ala-pi-stomp": "success",
         },
     )
     services = FakeServiceBackend(

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum, auto
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
@@ -22,6 +22,11 @@ _CRASH_RESULTS: frozenset[str] = frozenset({
 })
 
 
+def is_crash_result(result: str) -> bool:
+    """True if a systemd `Result` property indicates the last run failed."""
+    return result in _CRASH_RESULTS
+
+
 class BootMode(Enum):
     NORMAL = auto()
     CRASH_RECOVERY = auto()
@@ -35,6 +40,7 @@ class CrashInfo:
     crash_log: str
     crash_log_full: str
     service_states: dict[str, str]
+    service_results: dict[str, str] = field(default_factory=dict[str, str])
 
 
 def diagnose_crash() -> CrashInfo:
@@ -43,7 +49,7 @@ def diagnose_crash() -> CrashInfo:
     return diagnose_services(chain)
 
 
-def _service_crashed(state: str, name: str) -> bool:
+def _service_crashed(state: str, result: str) -> bool:
     """True if the service last ran with a non-success Result.
 
     OnFailure fires immediately on a crash, but Restart=always has usually
@@ -53,24 +59,37 @@ def _service_crashed(state: str, name: str) -> bool:
     """
     if state == "failed":
         return True
-    return service_last_result(name) in _CRASH_RESULTS
+    return is_crash_result(result)
 
 
 def diagnose_services(services: list[str]) -> CrashInfo:
-    """Check the current health of the given services."""
+    """Check the current health of the given services.
+
+    Fetches both ActiveState and Result per service.  ActiveState is *now*
+    (often 'activating' mid-restart after a crash); Result is *what happened
+    on the last run* and only resets on a successful start, so it's the
+    reliable crash signal across the OnFailure race.
+    """
     states: dict[str, str] = {}
+    results: dict[str, str] = {}
     failed_service: str | None = None
     for svc in services:
         state = service_status(svc)
+        result = service_last_result(svc)
         states[svc] = state
-        if failed_service is None and _service_crashed(state, svc):
+        results[svc] = result
+        if failed_service is None and _service_crashed(state, result):
             failed_service = svc
 
     crash_log: str = ""
     crash_log_full: str = ""
     if failed_service:
-        crash_log = service_journal(failed_service, lines=10)
-        crash_log_full = service_journal(failed_service, lines=100)
+        # Fetch enough lines that the textarea's last-6 slice catches the
+        # actual traceback even when a restart loop has filled the journal
+        # with systemd's own Starting/Started lines above it.
+        log = service_journal(failed_service, lines=100)
+        crash_log = log
+        crash_log_full = log
 
     boot_mode = BootMode.CRASH_RECOVERY if failed_service else BootMode.USER_RECOVERY
     return CrashInfo(
@@ -79,6 +98,7 @@ def diagnose_services(services: list[str]) -> CrashInfo:
         crash_log=crash_log,
         crash_log_full=crash_log_full,
         service_states=states,
+        service_results=results,
     )
 
 

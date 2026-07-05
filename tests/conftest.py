@@ -306,6 +306,7 @@ class FakeServiceBackend:
             crash_log="",
             crash_log_full="",
             service_states={s: "active" for s in services},
+            service_results={s: "success" for s in services},
         )
 
     def reboot(self) -> None:
@@ -328,6 +329,7 @@ class FakeServiceBackend:
             crash_log="boom",
             crash_log_full="boom",
             service_states={},
+            service_results={},
         )
 
 

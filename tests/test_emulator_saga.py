@@ -338,6 +338,12 @@ class TestCrashScreenAndLogView:
                 "mod-ui": "active",
                 "mod-ala-pi-stomp": "failed",
             },
+            service_results={
+                "jack": "success",
+                "mod-host": "success",
+                "mod-ui": "success",
+                "mod-ala-pi-stomp": "exit-code",
+            },
         )
         app = RecoveryAppCore(
             AppBackends(display=display, input=inp, data=data, services=services),
@@ -455,3 +461,63 @@ class TestCrashScreenAndLogView:
 
         from pistomp_recovery.ui.screens.crash import CrashScreen
         assert isinstance(harness.app.current_screen(), CrashScreen)
+
+    def test_crash_screen_shows_crashed_for_activating_race(
+        self, snapshot_update: bool
+    ) -> None:
+        """When a crashed service has raced back to 'activating' under
+        Restart=always, the UI must show 'crashed' (driven by Result) and pin
+        the <-- marker to the failed_service — not the raw 'activating' state.
+
+        This is the classic crash-loop shape the user reported: jack is up,
+        mod-host crashed and is back to 'activating', mod-ui/pi-stomp are
+        inactive downstream waits.
+        """
+        display = FakeDisplayBackend()
+        encoder = FakeEncoderInput()
+        tweak1 = FakeEncoderInput()
+        inp = FakeInputBackend(encoder, tweak1)
+        data = EmulatorDataBackend()
+        services = EmulatorServiceBackend(BootMode.USER_RECOVERY)
+
+        crash_info = CrashInfo(
+            boot_mode=BootMode.CRASH_RECOVERY,
+            failed_service="mod-host",
+            crash_log="mod-host: jack backend gone",
+            crash_log_full="mod-host: jack backend gone",
+            service_states={
+                "jack": "active",
+                "mod-host": "activating",
+                "mod-ui": "inactive",
+                "mod-ala-pi-stomp": "inactive",
+            },
+            service_results={
+                "jack": "success",
+                "mod-host": "exit-code",
+                "mod-ui": "success",
+                "mod-ala-pi-stomp": "success",
+            },
+        )
+        app = RecoveryAppCore(
+            AppBackends(display=display, input=inp, data=data, services=services),
+            crash_info,
+        )
+        app.init()
+        harness = AppHarness(app, display)
+        try:
+            harness.inject()
+            _snap(harness, "crash_screen_activating_race", update=snapshot_update)
+
+            # Row prefixes must reflect the Result, not the misleading ActiveState.
+            menu = harness._menu()
+            assert menu is not None
+            prefixes = [row.prefix for row in menu._rows if row.prefix]
+            assert any("mod-host: crashed" in p and "<--" in p for p in prefixes), (
+                f"expected 'mod-host: crashed  <--', got {prefixes}"
+            )
+            assert any("jack: active" in p for p in prefixes), prefixes
+            # Downstream services are inactive (clean stops, not crashes).
+            assert any("mod-ui: inactive" in p for p in prefixes), prefixes
+            assert any("mod-ala-pi-stomp: inactive" in p for p in prefixes), prefixes
+        finally:
+            app.cleanup()

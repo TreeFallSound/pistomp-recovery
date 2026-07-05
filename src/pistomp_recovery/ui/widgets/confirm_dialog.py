@@ -16,14 +16,18 @@ _BORDER: int = 4
 
 
 class ConfirmDialog:
-    """Modal overlay with No/Yes choices, rendered in the QBASIC style.
+    """Modal overlay rendered in the QBASIC style.
+
+    With ``on_cancel`` set, shows a No/Yes choice: encoder rotates between
+    the two and click activates the focused one.  With ``on_cancel=None``,
+    shows a single centered "OK" button and only accepts CLICK — used for
+    informational dialogs that have no meaningful "no" answer.
 
     Text is word-wrapped aiming for ``_AIM_W`` box width, but the box
     expands to fit the longest line (capped at ``_MAX_W``) so single-word
     pedalboard names don't wrap unnecessarily.  Height auto-sizes to
-    content with the buttons flush below the text.  The focused choice
+    content with the button(s) flush below the text.  The focused choice
     is drawn in reverse video.  Intercepts all input until dismissed.
-    Encoder rotates between No and Yes; click activates.
     """
 
     def __init__(
@@ -31,12 +35,12 @@ class ConfirmDialog:
         surface: pygame.Surface,
         title: str,
         on_confirm: Callable[[], None],
-        on_cancel: Callable[[], None],
+        on_cancel: Callable[[], None] | None,
     ) -> None:
         self._surface: pygame.Surface = surface
         self._title: str = title
         self._on_confirm: Callable[[], None] = on_confirm
-        self._on_cancel: Callable[[], None] = on_cancel
+        self._on_cancel: Callable[[], None] | None = on_cancel
         self._confirmed: bool = False
         self._lines: list[str] = []
         self._width: int = _AIM_W
@@ -70,6 +74,12 @@ class ConfirmDialog:
         return _PAD * 2 + _BORDER * 2 + ch * n + ch * 2
 
     def handle_event(self, event: InputEvent) -> bool:
+        if self._on_cancel is None:
+            # Informational dialog: only CLICK dismisses (runs on_confirm).
+            if event == InputEvent.CLICK:
+                self._on_confirm()
+                return True
+            return False
         if event in (InputEvent.LEFT, InputEvent.RIGHT):
             self._confirmed = not self._confirmed
             return True
@@ -111,8 +121,11 @@ class ConfirmDialog:
             line_y += ch
 
         btn_y: int = y + h - _PAD - _BORDER - ch
-        self._draw_button("No", LCD_WIDTH // 2 - w // 4, btn_y, not self._confirmed)
-        self._draw_button("Yes", LCD_WIDTH // 2 + w // 4, btn_y, self._confirmed)
+        if self._on_cancel is None:
+            self._draw_button("OK", LCD_WIDTH // 2, btn_y, True)
+        else:
+            self._draw_button("No", LCD_WIDTH // 2 - w // 4, btn_y, not self._confirmed)
+            self._draw_button("Yes", LCD_WIDTH // 2 + w // 4, btn_y, self._confirmed)
 
     def _draw_button(self, label: str, cx: int, y: int, selected: bool) -> None:
         cw, ch = cell_size()

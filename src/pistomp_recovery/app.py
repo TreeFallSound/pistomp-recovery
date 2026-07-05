@@ -12,12 +12,21 @@ import logging
 import textwrap
 import threading
 import time
+from pathlib import Path
 from typing import Callable
 
 import pygame
 
+from pistomp_recovery import git_util
 from pistomp_recovery.backends import AppBackends
-from pistomp_recovery.constants import DOMAIN_PLUGINS, DOMAIN_SYSTEM, LCD_HEIGHT, LCD_WIDTH
+from pistomp_recovery.constants import (
+    DOMAIN_PLUGINS,
+    DOMAIN_SYSTEM,
+    LCD_HEIGHT,
+    LCD_WIDTH,
+    PISTOMP_EXPANDED_MARKER,
+    PISTOMP_SRC_DIR,
+)
 from pistomp_recovery.items import Item, Row, Target
 from pistomp_recovery.service import BootMode, CrashInfo
 from pistomp_recovery.ui.screens import Screen
@@ -429,21 +438,66 @@ class RecoveryAppCore:
         if not items:
             empty = "No updates available" if mode == MODE_UPDATES else "Nothing to reset"
             return [Row((Target(empty, lambda: None, enabled=False),))]
-        pkg_names = [it.name for it in items if it.name != "all"]
+        expanded = self._pi_stomp_expanded()
+        pkg_names = [
+            it.name
+            for it in items
+            if it.name != "all" and not (expanded and it.name == "pi-stomp")
+        ]
+        non_all_count: int = len([i for i in items if i.name != "all"])
         rows: list[Row] = []
         for it in items:
             if it.name == "all":
-                target = Target(
-                    it.label,
-                    lambda names=pkg_names: self._install_packages(names),
-                    confirm=f"Update all {len(pkg_names)} packages?",
+                # The "Update All" badge counts only packages we will actually
+                # install — when pi-stomp is filtered out, that is fewer than
+                # the total update count.
+                all_right: str = (
+                    f"{len(pkg_names)} pkgs"
+                    if expanded and len(pkg_names) < non_all_count
+                    else it.right
                 )
+                if expanded and len(pkg_names) < non_all_count:
+                    all_target = Target(
+                        it.label,
+                        lambda names=pkg_names: self._install_packages(names),
+                        confirm=(
+                            f"Update all {len(pkg_names)} packages?"
+                            " (pi-stomp skipped: using git)"
+                        ),
+                    )
+                else:
+                    all_target = Target(
+                        it.label,
+                        lambda names=pkg_names: self._install_packages(names),
+                        confirm=f"Update all {len(pkg_names)} packages?",
+                    )
+                target = all_target
+                rows.append(Row((target,), right=all_right))
+            elif it.name == "pi-stomp" and expanded:
+                status = self._pi_stomp_local_status()
+                label = (
+                    f"pi-stomp {status[0]}{'*' if status[1] else ''}"
+                    if status is not None
+                    else "pi-stomp"
+                )
+                target = Target(
+                    label,
+                    lambda: None,
+                    info=(
+                        "Cannot update pi-stomp: using git.\n"
+                        "Run util/contract-git.sh to re-enable updates."
+                    ),
+                )
+                # The new version cannot be applied; render the badge in red
+                # to flag the upgrade as blocked.
+                rows.append(Row((target,), right=it.right, right_color="error"))
             elif it.name.startswith("_"):
                 # Informational/error items (e.g. "_offline" for no internet)
                 target = Target(it.label, lambda: None, enabled=False)
+                rows.append(Row((target,), right=it.right))
             else:
                 target = self._item_target(it, mode, domain)
-            rows.append(Row((target,), right=it.right))
+                rows.append(Row((target,), right=it.right))
         return rows
 
     def _show_domain(self, mode: str, domain: str) -> None:
@@ -628,6 +682,20 @@ class RecoveryAppCore:
         picker.set_rows(rows)
 
     # -- package install with progress --------------------------------------
+
+    @staticmethod
+    def _pi_stomp_expanded() -> bool:
+        """True if the pi-stomp source tree has an expanded git repo.
+
+        When set (by util/expand-git.sh), apt upgrades would overwrite the
+        developer's git-managed tree; recovery refuses pi-stomp updates.
+        """
+        return Path(PISTOMP_EXPANDED_MARKER).exists()
+
+    @staticmethod
+    def _pi_stomp_local_status() -> tuple[str, bool] | None:
+        """Return ``(short_hash, is_dirty)`` for the pi-stomp source tree."""
+        return git_util.local_status(Path(PISTOMP_SRC_DIR))
 
     def _install_packages(self, packages: list[str]) -> None:
         screen: Screen | None = self.current_screen()

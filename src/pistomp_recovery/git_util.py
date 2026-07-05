@@ -148,3 +148,12 @@ def last_commit_for_path(path: Path, rel_path: str) -> str | None:
     if not result:
         return None
     return result
+
+
+def local_status(path: Path) -> tuple[str, bool] | None:
+    """Return (short_hash, is_dirty) for the repo at path, or None if no commits exist."""
+    short_hash: str = git("rev-parse", "--short=7", "HEAD", cwd=path, check=False)
+    if not short_hash:
+        return None
+    status: str = git("status", "--porcelain", cwd=path, check=False)
+    return (short_hash, bool(status))

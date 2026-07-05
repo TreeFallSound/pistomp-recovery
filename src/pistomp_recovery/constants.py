@@ -3,6 +3,12 @@ from __future__ import annotations
 INIT_STAMP: str = "/run/lcd.init"
 PISTOMP_USER: str = "pistomp"
 PISTOMP_HOME: str = "/home/pistomp"
+PISTOMP_SRC_DIR: str = "/opt/pistomp/pi-stomp"
+# Marker written by pi-stomp's util/expand-git.sh after fetching full git
+# history. Its presence means the pi-stomp source tree is git-managed by
+# the developer and apt upgrades would overwrite their work — recovery
+# refuses pi-stomp package updates while it exists.
+PISTOMP_EXPANDED_MARKER: str = f"{PISTOMP_SRC_DIR}/.git/EXPANDED"
 DATA_DIR: str = f"{PISTOMP_HOME}/data"
 CONFIG_DIR: str = f"{DATA_DIR}/config"
 PEDALBOARDS_DIR: str = f"{DATA_DIR}/.pedalboards"

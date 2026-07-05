@@ -270,7 +270,9 @@ class MenuScreen(Screen):
 
     def _activate(self) -> None:
         target: Target = self._target_at(self._nav[self._sel])
-        if target.confirm is not None:
+        if target.info is not None:
+            self._open_info(target, target.info)
+        elif target.confirm is not None:
             self._open_confirm(target, target.confirm)
         else:
             target.on_select()
@@ -282,6 +284,15 @@ class MenuScreen(Screen):
             text,
             lambda: self._do_confirm(target),
             self._cancel_confirm,
+        )
+
+    def _open_info(self, target: Target, text: str) -> None:
+        self._state = "CONFIRM"
+        self._confirm_dialog = ConfirmDialog(
+            self._surface,
+            text,
+            lambda: self._do_confirm(target),
+            None,
         )
 
     def _do_confirm(self, target: Target) -> None:
@@ -413,7 +424,7 @@ class MenuScreen(Screen):
             if row.right:
                 rw: int = text_width(row.right)
                 right_surf: pygame.Surface = get_font().render(
-                    row.right, True, COLORS["accent"]
+                    row.right, True, COLORS[row.right_color]
                 )
                 self._surface.blit(right_surf, (LCD_WIDTH - rw - cw, y + TEXT_DY))
 

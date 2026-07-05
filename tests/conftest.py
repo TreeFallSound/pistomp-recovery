@@ -202,7 +202,7 @@ class FakeDataBackend(DataBackend):
 
     def domain_items(self, mode: str, domain: str) -> list[Item]:
         if mode == "updates":
-            return [
+            items = [
                 Item(
                     u.name,
                     f"{u.name} {u.old_version}",
@@ -212,6 +212,11 @@ class FakeDataBackend(DataBackend):
                 )
                 for u in self._updates.get(domain, [])
             ]
+            if len(items) > 1:
+                items.append(
+                    Item("all", "Update All", False, f"{len(items)} pkgs", [])
+                )
+            return items
         return list(self._items.get(mode, {}).get(domain, []))
 
     def domain_summary(self, mode: str, domain: str) -> str:

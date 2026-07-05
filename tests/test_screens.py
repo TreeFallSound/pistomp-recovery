@@ -12,6 +12,8 @@ import time
 from pathlib import Path
 from typing import Callable
 
+import pytest
+
 from pistomp_recovery.app import RecoveryAppCore
 from pistomp_recovery.backends import AppBackends
 from pistomp_recovery.items import Action, Item, PackageUpdate, Row, Target
@@ -298,9 +300,155 @@ def test_update_items_are_selectable_with_empty_actions(
 
     menu = harness._menu()
     assert menu is not None
-    assert harness.row_labels() == ["a 0.1", "b 0.3"]
+    assert harness.row_labels() == ["a 0.1", "b 0.3", "Update All"]
     # All update items should be navigable (enabled) even with empty actions.
     assert all(target.enabled for row in menu._rows for target in row.targets)
+
+
+def test_expanded_pi_stomp_selecting_directly_shows_info(
+    recovery_app: AppHarness,
+    fake_data: FakeDataBackend,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    snapshot: Callable[..., None],
+) -> None:
+    """When pi-stomp's git tree is expanded, the row shows the local hash
+    + dirty marker instead of the apt version, and selecting it pops an
+    OK-only info dialog explaining why the update cannot proceed.
+    """
+    marker = tmp_path / "EXPANDED"
+    marker.write_text("")
+    monkeypatch.setattr("pistomp_recovery.app.PISTOMP_EXPANDED_MARKER", str(marker))
+    monkeypatch.setattr(
+        "pistomp_recovery.app.git_util.local_status",
+        lambda _path: ("b66fdff1", True),
+    )
+
+    fake_data.set_updates(
+        "system",
+        [
+            PackageUpdate("pi-stomp", "1.0", "1.1"),
+            PackageUpdate("a", "0.1", "0.2"),
+        ],
+    )
+
+    harness = recovery_app
+    harness.app._show_domain("updates", "system")
+    harness.inject()
+    snapshot("domain_list")
+
+    menu = harness._menu()
+    assert menu is not None
+    assert harness.row_labels() == ["pi-stomp b66fdff1*", "a 0.1", "Update All"]
+
+    # LEFT/RIGHT are no-ops on the info dialog (no second button to focus).
+    harness.scroll_to("pi-stomp b66fdff1*")
+    harness.inject(InputEvent.LEFT, InputEvent.RIGHT)
+    assert menu._state == "LIST"
+
+    harness.select("pi-stomp b66fdff1*")
+    snapshot("info_dialog")
+
+    assert menu._state == "CONFIRM"
+    assert menu._confirm_dialog is not None
+    assert "Cannot update pi-stomp" in menu._confirm_dialog._title
+    assert "contract-git.sh" in menu._confirm_dialog._title
+    # No second button: the info dialog has on_cancel=None.
+    assert menu._confirm_dialog._on_cancel is None
+
+    # LEFT/RIGHT are no-ops — only CLICK dismisses the info dialog.
+    harness.inject(InputEvent.LEFT, InputEvent.RIGHT)
+    assert menu._state == "CONFIRM"
+
+    # OK dismisses the dialog and is a no-op; the backend is never asked to install.
+    harness.inject(InputEvent.CLICK)
+    assert menu._state == "LIST"
+    assert fake_data._installed == []
+
+
+def test_expanded_pi_stomp_clean_label_omits_marker(
+    recovery_app: AppHarness,
+    fake_data: FakeDataBackend,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A clean working tree shows just the short hash (no trailing '*')."""
+    marker = tmp_path / "EXPANDED"
+    marker.write_text("")
+    monkeypatch.setattr("pistomp_recovery.app.PISTOMP_EXPANDED_MARKER", str(marker))
+    monkeypatch.setattr(
+        "pistomp_recovery.app.git_util.local_status",
+        lambda _path: ("a1b2c3d", False),
+    )
+
+    fake_data.set_updates(
+        "system",
+        [PackageUpdate("pi-stomp", "1.0", "1.1")],
+    )
+
+    harness = recovery_app
+    harness.app._show_domain("updates", "system")
+    harness.inject()
+    assert harness.row_labels()[0] == "pi-stomp a1b2c3d"
+
+
+def test_expanded_pi_stomp_skipped_from_update_all(
+    recovery_app: AppHarness,
+    fake_data: FakeDataBackend,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    snapshot: Callable[..., None],
+) -> None:
+    """When pi-stomp's git tree is expanded, 'Update All' filters pi-stomp
+    out of the install list and surfaces a note in the confirm dialog.
+    """
+    marker = tmp_path / "EXPANDED"
+    marker.write_text("")
+    monkeypatch.setattr("pistomp_recovery.app.PISTOMP_EXPANDED_MARKER", str(marker))
+    monkeypatch.setattr(
+        "pistomp_recovery.app.git_util.local_status",
+        lambda _path: ("b66fdff1", True),
+    )
+
+    fake_data.set_updates(
+        "system",
+        [
+            PackageUpdate("pi-stomp", "1.0", "1.1"),
+            PackageUpdate("a", "0.1", "0.2"),
+        ],
+    )
+    fake_data._install_progress = [
+        ("Update complete", 1.0, "Done.", True),
+    ]
+
+    harness = recovery_app
+    harness.app._show_domain("updates", "system")
+    harness.inject()
+
+    # "Update All" badge reflects the actual install count (pi-stomp filtered).
+    domain = harness.app._screen_stack[-1]  # type: ignore[attr-defined]
+    all_row = next(r for r in domain._rows if r.targets[0].label == "Update All")
+    assert all_row.right == "1 pkgs"
+
+    # The pi-stomp row is flagged in the error color to indicate the upgrade
+    # is blocked.
+    pi_row = next(r for r in domain._rows if "pi-stomp" in r.targets[0].label)
+    assert pi_row.right_color == "error"
+
+    harness.select("Update All")
+    menu = harness._menu()
+    assert menu is not None
+    assert menu._state == "CONFIRM"
+    assert menu._confirm_dialog is not None
+    # Confirm message advertises that pi-stomp will be skipped.
+    assert "pi-stomp skipped" in menu._confirm_dialog._title
+    assert "using git" in menu._confirm_dialog._title
+    assert "1 package" in menu._confirm_dialog._title
+    snapshot("update_all_confirm")
+
+    # Confirm: only the non-pi-stomp package should be installed.
+    harness.inject(InputEvent.RIGHT, InputEvent.CLICK)
+    assert fake_data._installed == [["a"]]
 
 
 def test_plugins_factory_picker_shows_count_badge(

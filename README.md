@@ -1,6 +1,8 @@
 pistomp-recovery
 ==================
 
+>  Status: alpha. This application is 100% vibe coded, so expect bugs and poor code quality 🤖
+
 Package update and recovery service for pi-Stomp.
 
 Runs as an exclusive LCD service (conflicts with mod-ala-pi-stomp). Activates via:

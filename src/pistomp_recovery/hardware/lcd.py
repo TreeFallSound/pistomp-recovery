@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 
 import numpy
 
-from pistomp_recovery.constants import INIT_STAMP, LCD_HEIGHT, LCD_WIDTH
+from pistomp_recovery.constants import CONFIG_DIR, INIT_STAMP, LCD_HEIGHT, LCD_WIDTH
 from pistomp_recovery.spi_timing import transfer_ms as spi_transfer_ms
 from pistomp_recovery.ui.widgets.misc import Box, union_rects
 
@@ -63,6 +63,25 @@ class LcdSpi:
     def has_system_splash(self) -> bool:
         return Path(INIT_STAMP).exists()
 
+    @staticmethod
+    def is_v2() -> bool:
+        """True if the device is pi-Stomp Core (v2, Pi 3/4).
+
+        Reads the hardware version from the same config file pi-stomp uses
+        (written by firstboot.sh → modify_version.sh).  v3 (Pi 5) returns
+        False so the aggressive reset/clear path can be skipped on hardware
+        that doesn't need it.
+        """
+        try:
+            import yaml
+
+            with open(Path(CONFIG_DIR) / "default_config.yml") as f:
+                cfg = yaml.safe_load(f)
+            version = float(cfg.get("hardware", {}).get("version", 3.0))
+            return version < 3.0
+        except Exception:
+            return False
+
     def init(self) -> None:
         try:
             import board  # type: ignore[import-untyped]
@@ -77,7 +96,13 @@ class LcdSpi:
         self._dc_pin = digitalio.DigitalInOut(board.D6)  # type: ignore[union-attr]
         rst_pin = digitalio.DigitalInOut(board.D5)  # type: ignore[union-attr]
 
-        rst = None if self.has_system_splash else rst_pin  # type: ignore[assignment]
+        # v2 (pi-Stomp Core, Pi 3/4) needs a hardware reset + clear on every
+        # process start: the ILI9341 panel stays in an undefined (white) state
+        # if a prior process crashed mid-init, and skipping the reset leaves
+        # it stuck. v3 (Pi 5) is unaffected, so skip the reset there to preserve
+        # the lcd-splash image during the handoff.
+        needs_reset = self.is_v2()
+        rst = None if (self.has_system_splash and not needs_reset) else rst_pin  # type: ignore[assignment]
 
         self._disp = ili9341.ILI9341(  # type: ignore[union-attr]
             spi,
@@ -90,7 +115,7 @@ class LcdSpi:
         # Bypass Adafruit's six-lock-per-block write with a single-lock/CS path.
         self._disp._block = self._block_fast  # type: ignore[union-attr]
 
-        if not self.has_system_splash:
+        if not self.has_system_splash or needs_reset:
             self.clear()  # full-panel black while still in Adafruit's portrait MADCTL
             self._create_stamp()
 

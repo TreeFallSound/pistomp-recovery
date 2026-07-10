@@ -57,7 +57,12 @@ class LcdDisplayBackend(DisplayBackend):
     """SPI LCD via pygame surface bridge."""
 
     def __init__(self) -> None:
-        self._display: Display = Display(LcdSpi())
+        # Recovery's flip convention is inverted from pi-stomp's:
+        #   flip=True  → 0xE8 (v3/Tre orientation, mirrors both axes)
+        #   flip=False → 0x28 (v2/Core orientation, no mirror)
+        # Detect v2 so the panel isn't upside-down on pi-Stomp Core.
+        flip = not LcdSpi.is_v2()
+        self._display: Display = Display(LcdSpi(flip=flip))
 
     @property
     def surface(self) -> pygame.Surface:

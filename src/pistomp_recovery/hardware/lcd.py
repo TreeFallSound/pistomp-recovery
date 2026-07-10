@@ -9,7 +9,8 @@ from typing import TYPE_CHECKING
 
 import numpy
 
-from pistomp_recovery.constants import CONFIG_DIR, INIT_STAMP, LCD_HEIGHT, LCD_WIDTH
+from pistomp_recovery.constants import INIT_STAMP, LCD_HEIGHT, LCD_WIDTH
+from pistomp_recovery.hardware.version import is_v2
 from pistomp_recovery.spi_timing import transfer_ms as spi_transfer_ms
 from pistomp_recovery.ui.widgets.misc import Box, union_rects
 
@@ -67,20 +68,10 @@ class LcdSpi:
     def is_v2() -> bool:
         """True if the device is pi-Stomp Core (v2, Pi 3/4).
 
-        Reads the hardware version from the same config file pi-stomp uses
-        (written by firstboot.sh → modify_version.sh).  v3 (Pi 5) returns
-        False so the aggressive reset/clear path can be skipped on hardware
-        that doesn't need it.
+        v3 (Pi 5) returns False so the aggressive reset/clear path can be
+        skipped on hardware that doesn't need it.
         """
-        try:
-            import yaml
-
-            with open(Path(CONFIG_DIR) / "default_config.yml") as f:
-                cfg = yaml.safe_load(f)
-            version = float(cfg.get("hardware", {}).get("version", 3.0))
-            return version < 3.0
-        except Exception:
-            return False
+        return is_v2()
 
     def init(self) -> None:
         try:

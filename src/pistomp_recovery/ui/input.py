@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 
 from pistomp_recovery.hardware.encoder import EncoderInput
-from pistomp_recovery.hardware.switch import AdcSwitch
+from pistomp_recovery.hardware.switch import Switch
 from pistomp_recovery.ui.widgets.misc import InputEvent
 
 logger = logging.getLogger(__name__)
@@ -13,11 +13,11 @@ class InputManager:
     def __init__(
         self,
         encoder: EncoderInput,
-        switch: AdcSwitch,
+        switch: Switch,
         tweak1: EncoderInput,
     ) -> None:
         self._encoder: EncoderInput = encoder
-        self._switch: AdcSwitch = switch
+        self._switch: Switch = switch
         self._tweak1: EncoderInput = tweak1
 
     def start(self) -> None:

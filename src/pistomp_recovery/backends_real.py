@@ -33,7 +33,8 @@ from pistomp_recovery.hardware.encoder import (
     EncoderInput,
 )
 from pistomp_recovery.hardware.lcd import LcdSpi
-from pistomp_recovery.hardware.switch import AdcSwitch
+from pistomp_recovery.hardware.switch import AdcSwitch, GpioSwitch, Switch
+from pistomp_recovery.hardware.version import is_v2
 from pistomp_recovery.items import Item
 from pistomp_recovery.packages.manager import PackageManager, detect_package_manager
 from pistomp_recovery.service import (
@@ -87,7 +88,9 @@ class GpioInputBackend(InputBackend):
     def __init__(self) -> None:
         self._encoder: EncoderInput = EncoderInput(pin_d=NAV_PIN_D, pin_clk=NAV_PIN_CLK)
         self._tweak1: EncoderInput = EncoderInput(pin_d=TWEAK1_PIN_D, pin_clk=TWEAK1_PIN_CLK)
-        self._switch: AdcSwitch = AdcSwitch()
+        # v2/Core wires the nav switch to a plain GPIO pin; v3/Tre reads it off
+        # the MCP3008 ADC. See hardware/switch.py for the pi-stomp cross-reference.
+        self._switch: Switch = GpioSwitch() if is_v2() else AdcSwitch()
         self._input: InputManager = InputManager(self._encoder, self._switch, tweak1=self._tweak1)
 
     def start(self) -> None:

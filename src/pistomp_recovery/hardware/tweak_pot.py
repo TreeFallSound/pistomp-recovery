@@ -28,12 +28,10 @@ class TweakPot:
     Emits a LEFT/RIGHT event for each delta step.
     """
 
-    def __init__(self, adc_channel: int, tolerance: int = 4) -> None:
+    def __init__(self, adc_channel: int) -> None:
         self._adc_channel: int = adc_channel
         self._spi: object | None = None
-        self._last_adc: int | None = None
         self._last_step: int | None = None
-        self._tolerance: int = tolerance
 
     def start(self) -> None:
         try:
@@ -65,24 +63,26 @@ class TweakPot:
         value: int = self._read_adc()
         return min(NUM_STEPS - 1, value * NUM_STEPS // (ADC_MAX + 1))
 
+    def _clamp_endpoints(self, value: int) -> int:
+        if value <= 8:
+            return 0
+        if value >= ADC_MAX - 8:
+            return ADC_MAX
+        return value
+
     def _step_from_raw(self, raw: int) -> int:
-        return min(NUM_STEPS - 1, raw * NUM_STEPS // (ADC_MAX + 1))
+        clamped: int = self._clamp_endpoints(raw)
+        return min(NUM_STEPS - 1, clamped * NUM_STEPS // (ADC_MAX + 1))
 
     def poll(self) -> int:
         raw: int = self._read_adc()
-
-        if self._last_adc is None:
-            self._last_adc = raw
-            self._last_step = self._step_from_raw(raw)
-            return 0
-
-        if abs(raw - self._last_adc) <= self._tolerance:
-            return 0
-
-        self._last_adc = raw
         step: int = self._step_from_raw(raw)
 
-        if self._last_step is None or step == self._last_step:
+        if self._last_step is None:
+            self._last_step = step
+            return 0
+
+        if step == self._last_step:
             return 0
 
         direction: int = 1 if step > self._last_step else -1

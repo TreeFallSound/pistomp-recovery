@@ -132,9 +132,10 @@ class FakeEncoder:
 class FakeInputBackend:
     """Input backend backed by FakeEncoder, with click injection."""
 
-    def __init__(self, encoder: FakeEncoder, tweak1: FakeEncoder | None = None) -> None:
+    def __init__(self, encoder: FakeEncoder, tweak1: FakeEncoder | None = None, tweak2: FakeEncoder | None = None) -> None:
         self._encoder = encoder
         self._tweak1 = tweak1 or FakeEncoder()
+        self._tweak2 = tweak2 or FakeEncoder()
         self._click_queue: list[bool] = []
 
     def start(self) -> None:
@@ -158,6 +159,11 @@ class FakeInputBackend:
             events.append(InputEvent.TWEAK1_RIGHT)
         elif tweak_dir < 0:
             events.append(InputEvent.TWEAK1_LEFT)
+        tweak2_dir: int = self._tweak2.poll()
+        if tweak2_dir > 0:
+            events.append(InputEvent.TWEAK2_RIGHT)
+        elif tweak2_dir < 0:
+            events.append(InputEvent.TWEAK2_LEFT)
         if self._click_queue:
             long = self._click_queue.pop(0)
             events.append(InputEvent.LONG_CLICK if long else InputEvent.CLICK)
@@ -179,6 +185,7 @@ class FakeDataBackend(DataBackend):
         self._install_success: bool = True
         self._install_progress: list[tuple[str, float, str, bool]] = []
         self._domain_summaries: dict[str, dict[str, str]] = {}
+        self._package_detail_text: list[str] = []
 
     def set_items(self, mode: str, domain: str, items: list[Item]) -> None:
         self._items.setdefault(mode, {})[domain] = items
@@ -246,7 +253,7 @@ class FakeDataBackend(DataBackend):
         pass
 
     def package_detail(self, name: str) -> list[str]:
-        return []
+        return self._package_detail_text
 
     def factory_plugin_size(self) -> int | None:
         return None

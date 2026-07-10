@@ -52,6 +52,13 @@ class InputManager:
         elif tweak_dir < 0:
             events.append(InputEvent.TWEAK1_LEFT)
 
+        if len(self._tweaks) > 1:
+            tweak2_dir: int = self._tweaks[1].poll()
+            if tweak2_dir > 0:
+                events.append(InputEvent.TWEAK2_RIGHT)
+            elif tweak2_dir < 0:
+                events.append(InputEvent.TWEAK2_LEFT)
+
         sw: int = self._switch.poll()
         if sw == 1:
             events.append(InputEvent.CLICK)

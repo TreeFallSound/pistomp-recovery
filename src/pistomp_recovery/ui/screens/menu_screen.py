@@ -15,6 +15,7 @@ from pistomp_recovery.ui.widgets.misc import Box, InputEvent
 from pistomp_recovery.ui.widgets.text import ProgressBar, StatusLine
 
 SEP: str = " | "
+_HSCROLL_STEP: int = 40
 
 # Navigation position: (row index, target index). The header icon is (-1, 0).
 NavPos = tuple[int, int]
@@ -64,6 +65,7 @@ class MenuScreen(Screen):
         )
         self._nav: list[NavPos] = []
         self._sel: int = 0
+        self._hscroll: int = 0
         self._build_nav()
 
         # TAIL state fields.
@@ -106,7 +108,11 @@ class MenuScreen(Screen):
                 nav.append((r, -1))
         self._nav = nav
         # Prefer the first real target; fall back to the header icon.
-        self._sel = 1 if len(nav) > 1 else 0
+        self._sel = 0
+        for i, pos in enumerate(nav):
+            if pos != HEADER and pos[1] >= 0:
+                self._sel = i
+                break
         self._scroll_into_view()
 
     def _target_at(self, pos: NavPos) -> Target | None:
@@ -204,10 +210,27 @@ class MenuScreen(Screen):
             if self._confirm_dialog is not None:
                 self._confirm_dialog.handle_event(event)
             return [Box(0, 0, LCD_WIDTH, LCD_HEIGHT)]
+
+        sel_pos = self._nav[self._sel]
+        on_text_row = sel_pos != HEADER and sel_pos[1] < 0
+
+        if on_text_row and event in (InputEvent.TWEAK1_LEFT, InputEvent.TWEAK1_RIGHT, InputEvent.TWEAK2_LEFT, InputEvent.TWEAK2_RIGHT):
+            max_w = max(
+                (text_width(row.prefix) for row in self._rows if row.selectable),
+                default=0,
+            )
+            view_w = LCD_WIDTH - cell_size()[0] * 2
+            if event in (InputEvent.TWEAK1_LEFT, InputEvent.TWEAK2_LEFT):
+                self._hscroll = max(0, self._hscroll - _HSCROLL_STEP)
+            else:
+                self._hscroll = min(max(0, max_w - view_w), self._hscroll + _HSCROLL_STEP)
+            return [Box(0, 0, LCD_WIDTH, LCD_HEIGHT)]
+
         if event == InputEvent.LEFT:
             old_rect = self._selection_rect()
             old_scroll = self._scroll
             self._sel = (self._sel - 1) % len(self._nav)
+            self._hscroll = 0
             self._scroll_into_view()
             if self._scroll != old_scroll:
                 return [self._content_rect()]
@@ -217,6 +240,7 @@ class MenuScreen(Screen):
             old_rect = self._selection_rect()
             old_scroll = self._scroll
             self._sel = (self._sel + 1) % len(self._nav)
+            self._hscroll = 0
             self._scroll_into_view()
             if self._scroll != old_scroll:
                 return [self._content_rect()]
@@ -425,10 +449,11 @@ class MenuScreen(Screen):
                     prefix_color = COLORS["sel_fg"]
                 else:
                     prefix_color = COLORS["disabled"] if row.separator else COLORS["text"]
+                draw_x = x - self._hscroll if row.selectable else x
                 surf: pygame.Surface = get_font().render(
                     row.prefix, True, prefix_color
                 )
-                self._surface.blit(surf, (x, y + TEXT_DY))
+                self._surface.blit(surf, (draw_x, y + TEXT_DY))
                 x += text_width(row.prefix)
 
             for ti, target in enumerate(row.targets):

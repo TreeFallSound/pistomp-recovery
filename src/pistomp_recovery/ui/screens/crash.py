@@ -118,10 +118,10 @@ class CrashScreen(MenuScreen):
         sel_pos = self._nav[self._sel]
         on_textarea = sel_pos != HEADER and sel_pos[0] == textarea_idx
 
-        if on_textarea and event in (InputEvent.TWEAK1_LEFT, InputEvent.TWEAK1_RIGHT):
+        if on_textarea and event in (InputEvent.TWEAK1_LEFT, InputEvent.TWEAK1_RIGHT, InputEvent.TWEAK2_LEFT, InputEvent.TWEAK2_RIGHT):
             max_w = max(text_width(line) for line in self._log_lines) if self._log_lines else 0
             view_w = LCD_WIDTH - cell_size()[0] * 2
-            if event == InputEvent.TWEAK1_RIGHT:
+            if event in (InputEvent.TWEAK1_LEFT, InputEvent.TWEAK2_LEFT):
                 self._hscroll = max(0, self._hscroll - _HSCROLL_STEP)
             else:
                 self._hscroll = min(max(0, max_w - view_w), self._hscroll + _HSCROLL_STEP)

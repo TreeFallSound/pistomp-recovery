@@ -77,6 +77,55 @@ def test_domain_screen_refreshes_after_successful_action(
     ]
 
 
+def test_package_detail_text_rows_are_selectable(
+    recovery_app: AppHarness,
+    fake_data: FakeDataBackend,
+    snapshot: Callable[..., None],
+) -> None:
+    """Text-only rows in the package detail screen are navigable for scrolling."""
+    harness = recovery_app
+    harness.app._screen_stack[:] = [harness.app._screen_stack[0]]
+
+    fake_data.set_updates("system", [PackageUpdate("foo", "1.0", "2.0")])
+    fake_data._package_detail_text = [
+        "This is a long package description that should wrap across multiple lines on the display.",
+        "",
+        "Changelog:",
+        "- Fixed a critical bug that caused the audio engine to crash under certain conditions",
+        "- Improved latency under heavy load by up to 40 percent in real-world testing",
+        "- Added support for the new hardware revision with expanded memory mapping",
+    ]
+    harness.app._show_domain("updates", "system")
+    harness.inject()
+    harness.select("foo 1.0")
+    harness.drain()
+
+    # Snapshot: detail screen with selectable text rows, selection on Install.
+    snapshot("package_detail_install_focused")
+
+    # Navigate down through text rows to verify scrolling works.
+    for _ in range(6):
+        harness.inject(InputEvent.RIGHT)
+
+    snapshot("package_detail_scrolled")
+
+    # Navigate to the Install button at the bottom.
+    harness.scroll_to("Install")
+    snapshot("package_detail_install")
+
+    # Navigate back up to a long line and exercise horizontal scroll.
+    # First go to the header, then step down to the first text row.
+    harness.inject(InputEvent.LEFT)
+    for _ in range(3):
+        harness.inject(InputEvent.RIGHT)
+    snapshot("package_detail_hscroll_start")
+    harness.inject(InputEvent.TWEAK1_RIGHT)
+    harness.inject(InputEvent.TWEAK1_RIGHT)
+    snapshot("package_detail_hscroll_mid")
+    harness.inject(InputEvent.TWEAK2_LEFT)
+    snapshot("package_detail_hscroll_back")
+
+
 def _push(harness: AppHarness, title: str, rows: list[Row], back: bool) -> MenuScreen:
     icon = Target(ICON_BACK if back else ICON_EXIT, harness.app.pop_screen)
     screen = MenuScreen(harness.app.surface, title, rows, icon)

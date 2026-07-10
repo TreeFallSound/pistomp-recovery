@@ -81,6 +81,8 @@ class EmulatorWindow:
         for _label, event in [
             ("Tweak←", InputEvent.TWEAK1_LEFT),
             ("Tweak→", InputEvent.TWEAK1_RIGHT),
+            ("Tweak2←", InputEvent.TWEAK2_LEFT),
+            ("Tweak2→", InputEvent.TWEAK2_RIGHT),
         ]:
             rect = pygame.Rect(x, btn_y2, btn_w, btn_h)
             self._buttons.append((rect, event, _label))
@@ -113,6 +115,10 @@ class EmulatorWindow:
             self._send_event(InputEvent.TWEAK1_LEFT)
         elif key == pygame.K_d:
             self._send_event(InputEvent.TWEAK1_RIGHT)
+        elif key == pygame.K_s:
+            self._send_event(InputEvent.TWEAK2_LEFT)
+        elif key == pygame.K_w:
+            self._send_event(InputEvent.TWEAK2_RIGHT)
         elif key in (pygame.K_RETURN, pygame.K_SPACE):
             self._send_event(InputEvent.CLICK)
         elif key == pygame.K_l:

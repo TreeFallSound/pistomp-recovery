@@ -117,10 +117,10 @@ class LogViewScreen(Screen):
                 self._sel += 1
             self._scroll_into_view()
             return [Box(0, 0, LCD_WIDTH, LCD_HEIGHT)]
-        if event == InputEvent.TWEAK1_LEFT:
+        if event in (InputEvent.TWEAK1_LEFT, InputEvent.TWEAK2_LEFT):
             self._hscroll = max(0, self._hscroll - _HSCROLL_STEP)
             return [Box(0, 0, LCD_WIDTH, LCD_HEIGHT)]
-        if event == InputEvent.TWEAK1_RIGHT:
+        if event in (InputEvent.TWEAK1_RIGHT, InputEvent.TWEAK2_RIGHT):
             max_w = max(text_width(line) for line in self._lines) if self._lines else 0
             view_w = LCD_WIDTH - cell_size()[0] * 2
             self._hscroll = min(max(0, max_w - view_w), self._hscroll + _HSCROLL_STEP)

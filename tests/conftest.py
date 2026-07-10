@@ -388,7 +388,7 @@ class AppHarness:
             return
         for _ in range(len(menu._nav) * 2):
             target = menu._target_at(menu._nav[menu._sel])
-            if label in target.label:
+            if target is not None and label in target.label:
                 return
             self.inject(InputEvent.RIGHT)
         raise RuntimeError(f"Could not find target: {label}")
@@ -406,7 +406,12 @@ class AppHarness:
         menu = self._menu()
         if menu is None:
             return []
-        return [menu._target_at(pos).label for pos in menu._nav]
+        labels: list[str] = []
+        for pos in menu._nav:
+            t = menu._target_at(pos)
+            if t is not None:
+                labels.append(t.label)
+        return labels
 
     def row_labels(self) -> list[str]:
         """Labels of every target across all rows (incl. disabled)."""

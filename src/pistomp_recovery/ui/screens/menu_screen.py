@@ -98,18 +98,24 @@ class MenuScreen(Screen):
     def _build_nav(self) -> None:
         nav: list[NavPos] = [HEADER]
         for r, row in enumerate(self._rows):
-            for ti, target in enumerate(row.targets):
-                if target.enabled:
-                    nav.append((r, ti))
+            if row.targets:
+                for ti, target in enumerate(row.targets):
+                    if target.enabled:
+                        nav.append((r, ti))
+            elif row.selectable:
+                nav.append((r, -1))
         self._nav = nav
         # Prefer the first real target; fall back to the header icon.
         self._sel = 1 if len(nav) > 1 else 0
         self._scroll_into_view()
 
-    def _target_at(self, pos: NavPos) -> Target:
+    def _target_at(self, pos: NavPos) -> Target | None:
         if pos == HEADER:
             return self._header_target
-        return self._rows[pos[0]].targets[pos[1]]
+        r, ti = pos
+        if ti < 0:
+            return None
+        return self._rows[r].targets[ti]
 
     # -- progress -----------------------------------------------------------
 
@@ -269,7 +275,9 @@ class MenuScreen(Screen):
         return Box(0, self._content_top(), LCD_WIDTH, self._content_lines() * ch)
 
     def _activate(self) -> None:
-        target: Target = self._target_at(self._nav[self._sel])
+        target: Target | None = self._target_at(self._nav[self._sel])
+        if target is None:
+            return
         if target.info is not None:
             self._open_info(target, target.info)
         elif target.confirm is not None:
@@ -404,8 +412,19 @@ class MenuScreen(Screen):
             y: int = content_y0 + (r - self._scroll) * ch
             x: int = cw
 
+            row_selected: bool = sel_pos[0] == r
+
+            if row_selected and not row.targets:
+                self._surface.fill(
+                    COLORS["sel_bg"],
+                    pygame.Rect(0, y, LCD_WIDTH, ch),
+                )
+
             if row.prefix:
-                prefix_color = COLORS["disabled"] if row.separator else COLORS["text"]
+                if row_selected and not row.targets:
+                    prefix_color = COLORS["sel_fg"]
+                else:
+                    prefix_color = COLORS["disabled"] if row.separator else COLORS["text"]
                 surf: pygame.Surface = get_font().render(
                     row.prefix, True, prefix_color
                 )

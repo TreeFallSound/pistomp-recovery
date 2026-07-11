@@ -59,6 +59,7 @@ class Row:
     prefix: str = ""
     right: str = ""
     separator: bool = False
+    selectable: bool = False
     right_color: ColorName = "accent"
 
 

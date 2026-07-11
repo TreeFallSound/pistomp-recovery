@@ -9,7 +9,6 @@ the same core with different backends.
 from __future__ import annotations
 
 import logging
-import textwrap
 import threading
 import time
 from pathlib import Path
@@ -579,8 +578,7 @@ class RecoveryAppCore:
                 Row(prefix="---", separator=True),
             ]
             for line in detail:
-                for wrapped in textwrap.wrap(line, 38) or [""]:
-                    rows.append(Row(prefix=wrapped))
+                rows.append(Row(prefix=line, selectable=True))
             rows.append(Row(prefix="---", separator=True))
             rows.append(Row((install_target,)))
             menu.set_rows(rows)

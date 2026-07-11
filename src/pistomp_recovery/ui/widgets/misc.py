@@ -13,6 +13,8 @@ class InputEvent(Enum):
     BACK = auto()
     TWEAK1_LEFT = auto()
     TWEAK1_RIGHT = auto()
+    TWEAK2_LEFT = auto()
+    TWEAK2_RIGHT = auto()
 
 
 class Box:

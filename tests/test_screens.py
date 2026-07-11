@@ -752,6 +752,69 @@ def test_crash_screen_snapshot(
     app.cleanup()
 
 
+def test_crash_screen_reports_missing_log(
+    fake_display: FakeDisplayBackend,
+    fake_input: FakeInputBackend,
+    fake_data: FakeDataBackend,
+) -> None:
+    """A crash whose journal read failed must say so, not render a blank panel."""
+    from pistomp_recovery.ui.screens.crash import NO_LOG_MESSAGE, CrashScreen
+
+    crash_info = CrashInfo(
+        boot_mode=BootMode.CRASH_RECOVERY,
+        failed_service="jack",
+        crash_log="",
+        crash_log_full="",
+        service_states={"jack": "failed"},
+        service_results={"jack": "exit-code"},
+    )
+    app = RecoveryAppCore(
+        AppBackends(
+            display=fake_display,
+            input=fake_input,
+            data=fake_data,
+            services=FakeServiceBackend(
+                boot_mode=BootMode.CRASH_RECOVERY,
+                crash_info_override=crash_info,
+            ),
+        ),
+        crash_info,
+    )
+    app.init()
+    screen = app.current_screen()
+    assert isinstance(screen, CrashScreen)
+
+    assert NO_LOG_MESSAGE in [row.prefix for row in screen._rows]
+
+    app.cleanup()
+
+
+def test_crash_screen_no_missing_log_message_without_failed_service(
+    fake_display: FakeDisplayBackend,
+) -> None:
+    """No failed service means there is no log to miss — stay quiet."""
+    from pistomp_recovery.ui.screens.crash import NO_LOG_MESSAGE, CrashScreen
+
+    def _noop() -> None:
+        return None
+
+    screen = CrashScreen(
+        fake_display.surface,
+        on_resume=_noop,
+        on_recovery=_noop,
+        on_show_log=_noop,
+        crash_info=CrashInfo(
+            boot_mode=BootMode.USER_RECOVERY,
+            failed_service=None,
+            crash_log="",
+            crash_log_full="",
+            service_states={"jack": "active"},
+        ),
+    )
+
+    assert NO_LOG_MESSAGE not in [row.prefix for row in screen._rows]
+
+
 def test_resume_starts_main_app(
     fake_display: FakeDisplayBackend,
     fake_input: FakeInputBackend,

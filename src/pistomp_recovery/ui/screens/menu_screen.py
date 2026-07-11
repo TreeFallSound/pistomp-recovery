@@ -214,7 +214,12 @@ class MenuScreen(Screen):
         sel_pos = self._nav[self._sel]
         on_text_row = sel_pos != HEADER and sel_pos[1] < 0
 
-        if on_text_row and event in (InputEvent.TWEAK1_LEFT, InputEvent.TWEAK1_RIGHT, InputEvent.TWEAK2_LEFT, InputEvent.TWEAK2_RIGHT):
+        if on_text_row and event in (
+            InputEvent.TWEAK1_LEFT,
+            InputEvent.TWEAK1_RIGHT,
+            InputEvent.TWEAK2_LEFT,
+            InputEvent.TWEAK2_RIGHT,
+        ):
             max_w = max(
                 (text_width(row.prefix) for row in self._rows if row.selectable),
                 default=0,

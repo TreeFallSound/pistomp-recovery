@@ -19,8 +19,6 @@ def is_v2() -> bool:
     orientation/reset) and input (nav-switch wiring) backends.
     """
     try:
-        import yaml
-
         with open(Path(CONFIG_DIR) / "default_config.yml") as f:
             cfg = yaml.safe_load(f)
         version = float(cfg.get("hardware", {}).get("version", 3.0))

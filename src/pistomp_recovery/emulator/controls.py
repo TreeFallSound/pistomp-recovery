@@ -31,7 +31,12 @@ class FakeEncoderInput:
 class FakeInputManager:
     """InputManager backed by FakeEncoderInput, with click injection."""
 
-    def __init__(self, encoder: FakeEncoderInput, tweak1: FakeEncoderInput, tweak2: FakeEncoderInput | None = None) -> None:
+    def __init__(
+        self,
+        encoder: FakeEncoderInput,
+        tweak1: FakeEncoderInput,
+        tweak2: FakeEncoderInput | None = None,
+    ) -> None:
         self._encoder: FakeEncoderInput = encoder
         self._tweak1: FakeEncoderInput = tweak1
         self._tweak2: FakeEncoderInput | None = tweak2

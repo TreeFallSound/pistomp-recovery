@@ -16,6 +16,8 @@ from pistomp_recovery.ui.widgets.misc import Box, InputEvent
 _HSCROLL_STEP: int = 40
 _TEXTAREA_LINES: int = 6
 
+NO_LOG_MESSAGE: str = "(no log available)"
+
 
 class CrashScreen(MenuScreen):
     """Crash recovery: failed-service summary, log textarea, and actions.
@@ -51,14 +53,20 @@ class CrashScreen(MenuScreen):
                 rows.append(Row(prefix="---", separator=True))
                 rows.append(Row((Target("", on_show_log),)))
                 rows.append(Row(prefix="---", separator=True))
+            elif crash_info.failed_service:
+                # A crash with no log means the journal read failed, not that
+                # nothing happened. Say so rather than showing a blank panel.
+                rows.append(Row(prefix=NO_LOG_MESSAGE))
             else:
                 rows.append(Row(prefix=""))
 
         rows.append(
-            Row((
-                Target("RESUME", on_resume),
-                Target("RECOVERY", on_recovery),
-            ))
+            Row(
+                (
+                    Target("RESUME", on_resume),
+                    Target("RECOVERY", on_recovery),
+                )
+            )
         )
 
         super().__init__(
@@ -97,7 +105,7 @@ class CrashScreen(MenuScreen):
         if r < 0:
             return
         ch: int = cell_size()[1]
-        content_h: int = (LCD_HEIGHT - self._content_top())
+        content_h: int = LCD_HEIGHT - self._content_top()
         # Compute visual offset of row r
         offset = 0
         for i in range(r):
@@ -118,7 +126,12 @@ class CrashScreen(MenuScreen):
         sel_pos = self._nav[self._sel]
         on_textarea = sel_pos != HEADER and sel_pos[0] == textarea_idx
 
-        if on_textarea and event in (InputEvent.TWEAK1_LEFT, InputEvent.TWEAK1_RIGHT, InputEvent.TWEAK2_LEFT, InputEvent.TWEAK2_RIGHT):
+        if on_textarea and event in (
+            InputEvent.TWEAK1_LEFT,
+            InputEvent.TWEAK1_RIGHT,
+            InputEvent.TWEAK2_LEFT,
+            InputEvent.TWEAK2_RIGHT,
+        ):
             max_w = max(text_width(line) for line in self._log_lines) if self._log_lines else 0
             view_w = LCD_WIDTH - cell_size()[0] * 2
             if event in (InputEvent.TWEAK1_LEFT, InputEvent.TWEAK2_LEFT):
@@ -176,26 +189,20 @@ class CrashScreen(MenuScreen):
 
             if row.prefix:
                 prefix_color = COLORS["disabled"] if row.separator else COLORS["text"]
-                surf: pygame.Surface = get_font().render(
-                    row.prefix, True, prefix_color
-                )
+                surf: pygame.Surface = get_font().render(row.prefix, True, prefix_color)
                 self._surface.blit(surf, (x, y + TEXT_DY))
                 x += text_width(row.prefix)
 
             for ti, target in enumerate(row.targets):
                 if ti > 0:
-                    sep_surf: pygame.Surface = get_font().render(
-                        SEP, True, COLORS["text_dim"]
-                    )
+                    sep_surf: pygame.Surface = get_font().render(SEP, True, COLORS["text_dim"])
                     self._surface.blit(sep_surf, (x, y + TEXT_DY))
                     x += text_width(SEP)
                 x = self._draw_target(target, x, y, selected=sel_pos == (r, ti))
 
             if row.right:
                 rw: int = text_width(row.right)
-                right_surf: pygame.Surface = get_font().render(
-                    row.right, True, COLORS["accent"]
-                )
+                right_surf: pygame.Surface = get_font().render(row.right, True, COLORS["accent"])
                 self._surface.blit(right_surf, (LCD_WIDTH - rw - cw, y + TEXT_DY))
 
         self._draw_scrollbar(content_h, content_y0)
@@ -222,6 +229,4 @@ class CrashScreen(MenuScreen):
         bar_h: int = max(ch, lines * lines // total_h)
         max_off: int = max(1, total_h - lines)
         bar_y: int = content_y0 + (lines - bar_h) * (self._scroll * ch) // max_off
-        self._surface.fill(
-            COLORS["text_dim"], pygame.Rect(LCD_WIDTH - 2, bar_y, 2, bar_h)
-        )
+        self._surface.fill(COLORS["text_dim"], pygame.Rect(LCD_WIDTH - 2, bar_y, 2, bar_h))

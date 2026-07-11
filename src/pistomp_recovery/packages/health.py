@@ -33,9 +33,13 @@ def service_last_result(name: str) -> str:
 
 def service_journal(name: str, lines: int = 10) -> str:
     """Returns recent journal lines for a service."""
+    # sudo required: we run as `pistomp`, which cannot read /run/log/journal.
     result: subprocess.CompletedProcess[str] = subprocess.run(
-        ["journalctl", "-u", name, "-n", str(lines), "--no-pager", "--output=cat"],
+        ["sudo", "journalctl", "-u", name, "-n", str(lines), "--no-pager", "--output=cat"],
         capture_output=True,
         text=True,
     )
+    if result.returncode != 0:
+        logger.warning("journalctl failed for %s: %s", name, result.stderr.strip())
+        return ""
     return result.stdout.strip()

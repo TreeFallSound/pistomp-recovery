@@ -38,7 +38,6 @@ class PedalboardFacet:
             git_util.init_repo(target)
             git_util.add_and_commit(target, "initial pedalboards state")
             git_util.create_factory_branch(target)
-        git_util.git("checkout", git_util.DEVICE_BRANCH, cwd=target, check=False)
 
     def list_items(self, path: Path | None = None) -> list[Item]:
         target = path or self.path
@@ -114,15 +113,25 @@ class PedalboardFacet:
         result.extend(factory_items)
         return result
 
+    def _on_device_branch(self, path: Path) -> bool:
+        current = git_util.git("branch", "--show-current", cwd=path, check=False)
+        return current == git_util.DEVICE_BRANCH
+
     def stamp(self, path: Path | None = None) -> str | None:
         target = path or self.path
         self.init(target)
+        if not self._on_device_branch(target):
+            logger.info("Not on device branch; skipping pedalboard stamp")
+            return None
         return git_util.add_and_commit(target, "stamp pedalboards")
 
     def stamp_item(self, name: str, path: Path | None = None) -> str | None:
         """Commit a single pedalboard's current state."""
         target = path or self.path
         self.init(target)
+        if not self._on_device_branch(target):
+            logger.info("Not on device branch; skipping pedalboard stamp")
+            return None
         item_path: Path = target / name
         git_util.git("add", str(item_path), cwd=target, check=False)
         return git_util.add_and_commit(target, f"stamp {name}")

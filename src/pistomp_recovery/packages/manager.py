@@ -13,11 +13,24 @@ import re
 import select
 import shutil
 import subprocess
+import tempfile
 import threading
 from pathlib import Path
 from typing import Callable, Protocol
 
 logger = logging.getLogger(__name__)
+
+
+def pistomp_apt_source_files(sources_dir: str) -> list[str]:
+    """
+    Absolute paths of the pistomp apt source lists in `sources_dir`.
+    Covers the stable `pistomp.list` plus the opt-in `pistomp-testing.list`
+    (trixie-testing) when the device was flashed for the pre-release channel
+    """
+    d = Path(sources_dir)
+    if not d.is_dir():
+        return []
+    return sorted(str(p) for p in d.glob("pistomp*.list"))
 
 
 class PackageManager(Protocol):
@@ -294,40 +307,61 @@ class AptManager:
     ) -> bool:
         from pistomp_recovery.constants import PISTOMP_APT_SOURCE
 
-        proc = subprocess.Popen(
-            [
-                "sudo", "apt-get", "update",
-                "-o", f"Dir::Etc::sourcelist={PISTOMP_APT_SOURCE}",
-                "-o", "Dir::Etc::SourceParts=-",
-            ],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-        )
-        assert proc.stdout is not None
-        fd = proc.stdout.fileno()
-        buf = ""
-        while True:
-            if cancel_event.is_set():
-                proc.kill()
-                proc.wait()
-                return False
-            r, _, _ = select.select([fd], [], [], 0.1)
-            if fd in r:
-                chunk = os.read(fd, 4096).decode(errors="replace")
-                if not chunk:
-                    break
-                buf += chunk
-                while "\n" in buf:
-                    line, buf = buf.split("\n", 1)
-                    stripped = line.rstrip("\r")
-                    if stripped:
-                        line_callback(stripped)
-        if buf.rstrip("\r"):
-            line_callback(buf.rstrip("\r"))
-        proc.wait()
-        self._synced = True
-        return proc.returncode == 0
+        sources_dir = str(Path(PISTOMP_APT_SOURCE).parent)
+        source_files = pistomp_apt_source_files(sources_dir)
+        if not source_files:
+            line_callback("No pistomp apt sources found.")
+            return False
+
+        # Point apt at a throwaway SourceParts dir holding only the pistomp
+        # channel lists (stable + testing when present). This keeps the update
+        # scoped to the pi-gen-pistomp repo — no slow Debian/raspi mirror hits —
+        # while still refreshing trixie-testing on opted-in devices.
+        parts_dir = tempfile.mkdtemp(prefix="pistomp-apt-src-")
+        try:
+            for src in source_files:
+                os.symlink(src, os.path.join(parts_dir, os.path.basename(src)))
+
+            proc = subprocess.Popen(
+                [
+                    "sudo",
+                    "apt-get",
+                    "update",
+                    "-o",
+                    "Dir::Etc::sourcelist=/dev/null",
+                    "-o",
+                    f"Dir::Etc::SourceParts={parts_dir}",
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+            )
+            assert proc.stdout is not None
+            fd = proc.stdout.fileno()
+            buf = ""
+            while True:
+                if cancel_event.is_set():
+                    proc.kill()
+                    proc.wait()
+                    return False
+                r, _, _ = select.select([fd], [], [], 0.1)
+                if fd in r:
+                    chunk = os.read(fd, 4096).decode(errors="replace")
+                    if not chunk:
+                        break
+                    buf += chunk
+                    while "\n" in buf:
+                        line, buf = buf.split("\n", 1)
+                        stripped = line.rstrip("\r")
+                        if stripped:
+                            line_callback(stripped)
+            if buf.rstrip("\r"):
+                line_callback(buf.rstrip("\r"))
+            proc.wait()
+            self._synced = True
+            return proc.returncode == 0
+        finally:
+            shutil.rmtree(parts_dir, ignore_errors=True)
 
     def check_updates(self, names: tuple[str, ...]) -> list[tuple[str, str, str]]:
         if not self._synced:

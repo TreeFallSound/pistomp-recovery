@@ -103,6 +103,9 @@ class EmulatorPackageFacet:
         self._updates: list[PackageUpdate] = [
             PackageUpdate("jack2-pistomp", "1.0.0", "1.9.13"),
             PackageUpdate("mod-ui", "1.0.0", "0.14.0"),
+            # Brand-new package not yet on the "device" — exercises the
+            # not-installed rollout row (label carries no old version).
+            PackageUpdate("pistomp-bluetooth", "not-installed", "1.0.0~pre1"),
         ]
 
     def init(self) -> None:
@@ -172,7 +175,7 @@ class EmulatorPackageFacet:
         items = [
             Item(
                 u.name,
-                f"{u.name} {u.old_version}",
+                f"{u.name} {u.old_version}" if u.old_version != "not-installed" else u.name,
                 False,
                 f"\u2191{u.new_version}",
                 [],

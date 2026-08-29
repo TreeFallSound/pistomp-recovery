@@ -573,8 +573,10 @@ class RecoveryAppCore:
 
         def _run() -> None:
             detail = self._backends.data.package_detail(name)
+            # New packages (OTA rollouts) carry no installed version.
+            version_line = f"{old_ver} → {new_ver}" if old_ver else f"install {new_ver}"
             rows: list[Row] = [
-                Row(prefix=f"{old_ver} → {new_ver}"),
+                Row(prefix=version_line),
                 Row(prefix="---", separator=True),
             ]
             for line in detail:

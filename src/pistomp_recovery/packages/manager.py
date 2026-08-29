@@ -19,6 +19,16 @@ from pathlib import Path
 from typing import Callable, Protocol
 
 logger = logging.getLogger(__name__)
+# `apt list` output lines (LANG=C). Three shapes matter:
+#   installed, upgradable:  foo/trixie,now 2.0-1 arm64 [upgradable from: 1.0-1]
+#   never installed:        foo/trixie 2.0-1 arm64
+#   removed, not purged:    foo/trixie,now 2.0-1 arm64 [residual-config]
+# The suite field is matched loosely (it may carry a ",now" component) and
+# says nothing reliable about installedness -- a "rc" package advertises
+# ",now" too. check_updates() asks dpkg instead.
+_UPGRADABLE_LINE = re.compile(r"^([^/\s]+)/\S+\s+(\S+)\s+\S+\s+\[upgradable from:\s+([^\]]+)\]")
+_AVAILABLE_LINE = re.compile(r"^([^/\s]+)/(\S+)\s+(\S+)\s+(\S+)(?:\s+\[[^\]]*\])?$")
+
 
 
 def pistomp_apt_source_files(sources_dir: str) -> list[str]:
@@ -55,9 +65,13 @@ class PackageManager(Protocol):
         ...
 
     def check_updates(self, names: tuple[str, ...]) -> list[tuple[str, str, str]]:
-        """Return (name, old_ver, new_ver) for upgradeable packages.
+        """Return (name, old_ver, new_ver) for packages with a newer candidate.
 
-        Calls sync_db() lazily if it has not already been called this session.
+        Packages in `names` that are not installed are reported with
+        old_ver "not-installed" when the repo offers them, so OTA rollouts
+        of brand-new packages surface here alongside upgrades of installed
+        ones.  Calls sync_db() lazily if it has not already been called this
+        session.
         """
         ...
 
@@ -85,8 +99,15 @@ class PackageManager(Protocol):
         """
         ...
 
-    def discover_packages(self, origin: str) -> tuple[str, ...]:
-        """Return installed packages that come from the repo identified by `origin`.
+    def discover_packages(
+        self, origin: str, lists_dir: str = "/var/lib/apt/lists"
+    ) -> tuple[str, ...]:
+        """Return all packages published by the repo identified by `origin`.
+
+        Includes packages not installed on this system: a new package's
+        OTA rollout can only reach already-deployed devices if the update
+        check tracks it before dpkg knows about it. `lists_dir` is
+        injectable for tests.
 
         `origin` is the repo-specific identifier (apt `Origin:` label or pacman
         repo name). Returns an empty tuple when discovery is not supported or
@@ -178,6 +199,12 @@ class PacmanManager:
                 updates.append((parts[0], parts[1], parts[2]))
             elif len(parts) == 2:
                 updates.append((parts[0], "unknown", parts[1]))
+        # Not-installed names produce no pacman -Qu line; report the ones
+        # the repo does offer so new-package rollouts surface (see Protocol).
+        if result.returncode == 0:
+            for name, avail in zip(names, self._available_versions(names)):
+                if avail and name not in {u[0] for u in updates}:
+                    updates.append((name, "not-installed", avail))
         return updates
 
     def download(self, names: list[str]) -> bool:
@@ -246,24 +273,51 @@ class PacmanManager:
         logger.warning("Version %s for %s not found in cache", version, name)
         return False
 
-    def discover_packages(self, origin: str) -> tuple[str, ...]:
+    def discover_packages(
+        self, origin: str, lists_dir: str = "/var/lib/apt/lists"
+    ) -> tuple[str, ...]:
+        # lists_dir is apt-specific (path to apt's list files); pacman reads
+        # its sync databases directly, so it is accepted and ignored.
+        return tuple(sorted(self._repo_packages(origin)))
+
+    def _repo_packages(self, origin: str) -> set[str]:
+        """Names of every package published by repo `origin` (installed or not)."""
         result: subprocess.CompletedProcess[str] = subprocess.run(
             ["pacman", "-Sl", origin], capture_output=True, text=True, check=False
         )
         if result.returncode != 0:
             logger.warning("pacman -Sl %s failed: %s", origin, result.stderr)
-            return ()
-        installed: list[str] = []
+            return set()
+        available: set[str] = set()
         for line in result.stdout.splitlines():
             # Format: <repo> <package> <version> [installed]
             parts = line.split()
-            if len(parts) >= 4 and "[installed]" in parts[3:]:
-                installed.append(parts[1])
-        return tuple(installed)
+            if len(parts) >= 3:
+                available.add(parts[1])
+        return available
+
+    def _available_versions(self, names: tuple[str, ...]) -> tuple[str, ...]:
+        """Candidate version per name, or "" when the repo does not offer it."""
+        versions: dict[str, str] = {}
+        result: subprocess.CompletedProcess[str] = subprocess.run(
+            ["pacman", "-Si", *names], capture_output=True, text=True, check=False
+        )
+        if result.returncode == 0:
+            current: str | None = None
+            for line in result.stdout.splitlines():
+                # Multi-record output, records separated by blank lines.
+                if line.startswith("Name"):
+                    current = line.partition(":")[2].strip()
+                elif line.startswith("Version") and current is not None:
+                    versions[current] = line.partition(":")[2].strip()
+        return tuple(versions.get(n, "") for n in names)
 
     def verify_packages(self, names: tuple[str, ...]) -> tuple[str, ...]:
+        installed = self.list_installed(names)
         dirty: list[str] = []
         for name in names:
+            if installed.get(name) == "not-installed":
+                continue
             result: subprocess.CompletedProcess[str] = subprocess.run(
                 ["pacman", "-Qkk", name], capture_output=True, text=True, check=False
             )
@@ -366,20 +420,31 @@ class AptManager:
     def check_updates(self, names: tuple[str, ...]) -> list[tuple[str, str, str]]:
         if not self._synced:
             self.sync_db()
+        # `apt list` (not --upgradeable) also reports available-but-not-
+        # installed packages, which is how a brand-new repo package reaches
+        # already-deployed devices. Both shapes are matched in one pass.
         result: subprocess.CompletedProcess[str] = subprocess.run(
-            ["apt", "list", "--upgradeable"],
+            ["apt", "list"],
             capture_output=True,
             text=True,
             check=False,
             env={**os.environ, "LANG": "C", "LC_ALL": "C"},
         )
         name_set = set(names)
+        # Installedness comes from dpkg, never from the `apt list` line: a
+        # package removed-but-not-purged (dpkg state "rc") still prints a
+        # ",now" suite component, and reading that as "installed" hides the
+        # package from updates forever.
+        installed = self.list_installed(names)
         updates: list[tuple[str, str, str]] = []
-        pattern = re.compile(r"^([^/\s]+)/\S+\s+(\S+)\s+\S+\s+\[upgradable from:\s+([^\]]+)\]")
         for line in result.stdout.split("\n"):
-            m = pattern.match(line)
+            m = _UPGRADABLE_LINE.match(line)
             if m and m.group(1) in name_set:
                 updates.append((m.group(1), m.group(3), m.group(2)))
+                continue
+            m = _AVAILABLE_LINE.match(line)
+            if m and m.group(1) in name_set and installed[m.group(1)] == "not-installed":
+                updates.append((m.group(1), "not-installed", m.group(3)))
         return updates
 
     def download(self, names: list[str]) -> bool:
@@ -483,8 +548,10 @@ class AptManager:
                 lines.append("" if stripped == "." else stripped)
         return lines
 
-    def discover_packages(self, origin: str) -> tuple[str, ...]:
-        lists_dir = Path("/var/lib/apt/lists")
+    def discover_packages(
+        self, origin: str, lists_dir: str = "/var/lib/apt/lists"
+    ) -> tuple[str, ...]:
+        lists = Path(lists_dir)
         available: set[str] = set()
         try:
             # Find InRelease or Release files whose Origin: header matches, then
@@ -492,8 +559,8 @@ class AptManager:
             # Repos configured with [trusted=yes] only produce a plain Release file
             # (no InRelease), so we must check both.
             release_files = [
-                *lists_dir.glob("*_InRelease"),
-                *[f for f in lists_dir.glob("*_Release") if not f.name.endswith("_Release.gpg")],
+                *lists.glob("*_InRelease"),
+                *[f for f in lists.glob("*_Release") if not f.name.endswith("_Release.gpg")],
             ]
             for release_file in release_files:
                 try:
@@ -507,7 +574,7 @@ class AptManager:
                 #      sastraxi.github.io_pi-gen-pistomp_dists_trixie_main_binary-arm64_Packages
                 suffix = "_InRelease" if release_file.name.endswith("_InRelease") else "_Release"
                 prefix = release_file.name[: -len(suffix)]
-                for pkg_file in lists_dir.glob(f"{prefix}_*_Packages"):
+                for pkg_file in lists.glob(f"{prefix}_*_Packages"):
                     try:
                         for line in pkg_file.read_text(errors="replace").splitlines():
                             if line.startswith("Package: "):
@@ -522,27 +589,18 @@ class AptManager:
             logger.warning("No packages found for apt origin %r", origin)
             return ()
 
-        result: subprocess.CompletedProcess[str] = subprocess.run(
-            [
-                "dpkg-query",
-                "-W",
-                "-f=${Package}\t${db:Status-Abbrev}\n",
-                *sorted(available),
-            ],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        installed: list[str] = []
-        for line in result.stdout.splitlines():
-            parts = line.split("\t", 1)
-            if len(parts) == 2 and parts[1].startswith("ii"):
-                installed.append(parts[0])
-        return tuple(installed)
+        # Deliberately NOT filtered to installed packages: check_updates()
+        # needs the full repo set so a brand-new package can roll out to
+        # already-deployed devices over OTA.
+        return tuple(sorted(available))
 
     def verify_packages(self, names: tuple[str, ...]) -> tuple[str, ...]:
+        installed = self.list_installed(names)
         dirty: list[str] = []
         for name in names:
+            if installed.get(name) == "not-installed":
+                # dpkg --verify errors on packages dpkg has never installed.
+                continue
             result: subprocess.CompletedProcess[str] = subprocess.run(
                 ["dpkg", "--verify", name], capture_output=True, text=True, check=False
             )

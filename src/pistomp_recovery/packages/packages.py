@@ -63,23 +63,29 @@ class PackageFacet:
         return None
 
     def unverified_packages(self) -> tuple[str, ...]:
-        return self._manager.verify_packages(self._packages)
+        # Not-installed packages (new OTA rollouts) have no checksum records;
+        # dpkg --verify would error on them and flag the device dirty.
+        installed = self._collect_versions()
+        to_verify = tuple(n for n in self._packages if installed.get(n) != "not-installed")
+        return self._manager.verify_packages(to_verify)
 
     def available_updates(self) -> list[tuple[str, str, str]]:
         return self._manager.check_updates(self._packages)
 
+    @staticmethod
+    def _update_item(name: str, old_ver: str, new_ver: str) -> Item:
+        """Row for an available update. New packages carry no old version."""
+        return Item(
+            name=name,
+            label=f"{name} {old_ver}" if old_ver != "not-installed" else name,
+            dirty=False,
+            right=f"\u2191{new_ver}",
+            actions=[],
+        )
+
     def remote_updates(self) -> list[Item]:
         updates = self.available_updates()
-        items = [
-            Item(
-                name=name,
-                label=f"{name} {old_ver}",
-                dirty=False,
-                right=f"↑{new_ver}",
-                actions=[],
-            )
-            for name, old_ver, new_ver in updates
-        ]
+        items = [self._update_item(name, old_ver, new_ver) for name, old_ver, new_ver in updates]
         if len(items) > 1:
             items.append(
                 Item(

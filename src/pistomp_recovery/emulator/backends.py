@@ -19,6 +19,7 @@ from typing import Callable
 
 import pygame
 
+from pistomp_recovery import audio_card
 from pistomp_recovery.backends import (
     AppBackends,
     DataBackend,
@@ -35,7 +36,7 @@ from pistomp_recovery.constants import (
 )
 from pistomp_recovery.emulator.controls import FakeEncoderInput, FakeInputManager
 from pistomp_recovery.facet import Facet, RollbackTarget, clear_facets, register_facet
-from pistomp_recovery.file_facet import FileFacet
+from pistomp_recovery.file_facet import FileFacet, MissingFactoryBaseline, TrackedFile
 from pistomp_recovery.items import Action, Item, PackageUpdate
 from pistomp_recovery.pedalboards import PedalboardFacet
 from pistomp_recovery.service import BootMode, CrashInfo
@@ -43,6 +44,21 @@ from pistomp_recovery.ui.widgets.misc import Box, InputEvent
 from pistomp_recovery.util import human_time
 
 logger = logging.getLogger(__name__)
+
+# Abridged stand-in for the image's config.txt.
+_FACTORY_CONFIG_TXT: str = """\
+dtparam=i2s=on
+dtparam=spi=on
+
+[all]
+# Enable the sound card (uncomment only one)
+#dtoverlay=audioinjector-wm8731-audio
+dtoverlay=iqaudio-codec
+#dtoverlay=hifiberry-dacplusadc
+
+gpu_mem=16
+disable_splash=1
+"""
 
 
 class PygameDisplayBackend(DisplayBackend):
@@ -216,8 +232,8 @@ class EmulatorDataBackend(DataBackend):
         # Write factory content.
         (self._config_dir / "default_config.yml").write_text("# factory config\n")
         (self._config_dir / "settings.yml").write_text("# factory settings\n")
-        (self._system_dir / "config.txt").write_text("# factory config.txt\n")
-        (self._system_dir / "jackdrc").write_text("# factory jackdrc\n")
+        (self._system_dir / "config.txt").write_text(_FACTORY_CONFIG_TXT)
+        (self._system_dir / "jack").write_text("# factory jack defaults\n")
         for name in (
             "AmpBud.pedalboard",
             "Beths.pedalboard",
@@ -232,16 +248,27 @@ class EmulatorDataBackend(DataBackend):
         self._config_facet = FileFacet(
             name="config",
             repo_dir=self._root / "config.git",
-            files=("default_config.yml", "settings.yml"),
-            source_resolver=lambda f: self._config_dir / f,
-            display_name_resolver=lambda f: f,
+            files=(
+                TrackedFile("default_config.yml", self._config_dir / "default_config.yml"),
+                TrackedFile("settings.yml", self._config_dir / "settings.yml"),
+            ),
         )
         self._boot_facet = FileFacet(
             name="boot",
             repo_dir=self._root / "system.git",
-            files=("config.txt", "jackdrc"),
-            source_resolver=lambda f: self._system_dir / f,
-            display_name_resolver=lambda f: f,
+            files=(
+                TrackedFile(
+                    "config.txt",
+                    self._system_dir / "config.txt",
+                    restore=audio_card.restore_config_txt,
+                    missing_factory_baseline=MissingFactoryBaseline.ADOPT_LIVE,
+                ),
+                TrackedFile(
+                    "jack",
+                    self._system_dir / "jack",
+                    missing_factory_baseline=MissingFactoryBaseline.ADOPT_LIVE,
+                ),
+            ),
         )
         self._pedalboard_facet = PedalboardFacet(self._pedalboards_dir)
         self._package_facet = EmulatorPackageFacet()
@@ -268,7 +295,11 @@ class EmulatorDataBackend(DataBackend):
         # Now modify some live files to simulate a dirty / already-changed device.
         (self._config_dir / "default_config.yml").write_text("# changed default config\n")
         (self._config_dir / "settings.yml").write_text("# changed settings\n")
-        (self._system_dir / "config.txt").write_text("# changed config.txt\n")
+        (self._system_dir / "config.txt").write_text(
+            _FACTORY_CONFIG_TXT.replace("dtoverlay=iqaudio-codec", "#dtoverlay=iqaudio-codec")
+            .replace("#dtoverlay=hifiberry-dacplusadc", "dtoverlay=hifiberry-dacplusadc")
+            .replace("gpu_mem=16", "gpu_mem=128")
+        )
         ampbud_manifest.write_text("# AmpBud further modified\n")
 
     def cleanup(self) -> None:

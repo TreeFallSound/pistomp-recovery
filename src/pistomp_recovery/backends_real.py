@@ -11,10 +11,12 @@ import logging
 import socket
 import subprocess
 import threading
+from pathlib import Path
 from typing import Callable
 
 import pygame
 
+from pistomp_recovery import audio_card
 from pistomp_recovery.backends import (
     AppBackends,
     DataBackend,
@@ -23,7 +25,7 @@ from pistomp_recovery.backends import (
     ProgressCallback,
     ServiceBackend,
 )
-from pistomp_recovery.constants import DOMAIN_FACETS, services_for_packages
+from pistomp_recovery.constants import BOOT_FIRMWARE_DIR, DOMAIN_FACETS, services_for_packages
 from pistomp_recovery.facet import Facet, all_facets, register_default_facets
 from pistomp_recovery.hardware.encoder import (
     NAV_PIN_CLK,
@@ -258,6 +260,14 @@ class RealDataBackend(DataBackend):
         except Exception:
             logger.debug("Could not compute factory plugin count", exc_info=True)
             return ""
+
+    def audio_card(self) -> str | None:
+        try:
+            text = (Path(BOOT_FIRMWARE_DIR) / "config.txt").read_text()
+        except OSError:
+            logger.debug("Could not read boot config.txt for audio-card display", exc_info=True)
+            return None
+        return audio_card.active_card(text)
 
     def factory_plugin_size(self) -> int | None:
         facet = all_facets().get("plugins")

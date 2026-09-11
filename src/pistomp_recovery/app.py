@@ -269,7 +269,10 @@ class RecoveryAppCore:
         unverified: tuple[str, ...] = (),
     ) -> list[Row]:
         services = self._backends.services
+        card = self._backends.data.audio_card()
         rows: list[Row] = [
+            Row(prefix=f"Audio: {card or 'unknown'}"),
+            Row(prefix="---", separator=True),
             Row(
                 (
                     Target(

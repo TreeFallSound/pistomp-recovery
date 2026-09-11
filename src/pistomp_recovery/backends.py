@@ -150,6 +150,14 @@ class DataBackend(Protocol):
         """
         ...
 
+    def audio_card(self) -> str | None:
+        """Return the audio-card overlay name selected in the live boot
+        ``config.txt``, or ``None`` when the selection is absent, ambiguous,
+        or unknown to the recovery build.  Purely informational — factory
+        rollback uses its own policy in ``audio_card.restore_config_txt``.
+        """
+        ...
+
 
 @runtime_checkable
 class ServiceBackend(Protocol):

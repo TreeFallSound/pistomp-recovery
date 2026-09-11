@@ -310,6 +310,13 @@ class EmulatorDataBackend(DataBackend):
             return "42"
         return ""
 
+    def audio_card(self) -> str | None:
+        try:
+            text = (self._system_dir / "config.txt").read_text()
+        except OSError:
+            return None
+        return audio_card.active_card(text)
+
     def factory_plugin_size(self) -> int | None:
         return 925_338_844
 

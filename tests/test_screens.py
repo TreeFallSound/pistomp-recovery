@@ -133,9 +133,14 @@ def _push(harness: AppHarness, title: str, rows: list[Row], back: bool) -> MenuS
     return screen
 
 
-def test_main_menu_renders(recovery_app: AppHarness, snapshot: Callable[..., None]) -> None:
-    """The root menu shows the inverted title, exit icon, and top-level rows."""
+def test_main_menu_renders(
+    recovery_app: AppHarness, fake_data: FakeDataBackend, snapshot: Callable[..., None]
+) -> None:
+    """The root menu shows the audio card, inverted title, exit icon, and top-level rows."""
+    fake_data.set_audio_card("iqaudio-codec")
     harness = recovery_app
+    harness.app._screen_stack.clear()
+    harness.app._show_main_menu()
     harness.inject()
     snapshot()
 
@@ -144,6 +149,23 @@ def test_main_menu_renders(recovery_app: AppHarness, snapshot: Callable[..., Non
     assert "Restart Jack" in labels and "Restart MOD" in labels
     assert "Reset to Checkpoint" in labels
     assert "Reboot" in labels and "Power Off" in labels
+    prefixes = [row.prefix for row in harness.app._screen_stack[-1]._rows]
+    assert "Audio: iqaudio-codec" in prefixes
+
+
+def test_main_menu_shows_unknown_audio_card(
+    recovery_app: AppHarness, fake_data: FakeDataBackend, snapshot: Callable[..., None]
+) -> None:
+    """An ambiguous/unknown live overlay renders as ``Audio: unknown``."""
+    fake_data.set_audio_card(None)
+    harness = recovery_app
+    harness.app._screen_stack.clear()
+    harness.app._show_main_menu()
+    harness.inject()
+    snapshot()
+
+    prefixes = [row.prefix for row in harness.app._screen_stack[-1]._rows]
+    assert "Audio: unknown" in prefixes
 
 
 def test_submenu_has_back_icon(recovery_app: AppHarness, snapshot: Callable[..., None]) -> None:

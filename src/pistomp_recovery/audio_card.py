@@ -43,8 +43,12 @@ def active_card(text: str) -> str | None:
     return active[0] if len(active) == 1 else None
 
 
-def _select_card(text: str, selected: str) -> str | None:
-    """Apply one card selection to ``text`` while preserving all other lines."""
+def select_card(text: str, selected: str) -> str | None:
+    """Apply one card selection to ``text`` while preserving all other lines.
+
+    Returns ``None`` when ``selected`` is not a known overlay in ``text`` —
+    the caller should treat that as "leave the file alone".
+    """
     found = False
     lines: list[str] = []
     for line in text.splitlines(keepends=True):
@@ -72,4 +76,4 @@ def restore_config_txt(restored: str, live: str, target: RollbackTarget) -> str 
     selected = active_card(live)
     if selected is None:
         return None
-    return _select_card(restored, selected)
+    return select_card(restored, selected)

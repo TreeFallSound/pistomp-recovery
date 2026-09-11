@@ -19,6 +19,7 @@ import pygame
 from pistomp_recovery import git_util
 from pistomp_recovery.backends import AppBackends
 from pistomp_recovery.constants import (
+    AUDIO_CARD_OVERLAYS,
     DOMAIN_PLUGINS,
     DOMAIN_SYSTEM,
     LCD_HEIGHT,
@@ -271,7 +272,7 @@ class RecoveryAppCore:
         services = self._backends.services
         card = self._backends.data.audio_card()
         rows: list[Row] = [
-            Row(prefix=f"Audio: {card or 'unknown'}"),
+            Row((Target(f"Audio: {card or 'unknown'}", self._show_audio_card_menu),)),
             Row(prefix="---", separator=True),
             Row(
                 (
@@ -335,6 +336,27 @@ class RecoveryAppCore:
     def _show_unverified_menu(self, unverified: tuple[str, ...]) -> None:
         rows: list[Row] = [Row(prefix=name) for name in unverified]
         self._push_menu("Unverified Packages", rows, back=True)
+
+    def _show_audio_card_menu(self) -> None:
+        rows: list[Row] = [
+            Row(
+                (
+                    Target(
+                        name,
+                        lambda n=name: self._switch_audio_card(n),
+                        confirm=f"Switch to {name} and reboot now?",
+                    ),
+                )
+            )
+            for name in AUDIO_CARD_OVERLAYS
+        ]
+        self._push_menu("Audio Card", rows, back=True)
+
+    def _switch_audio_card(self, name: str) -> None:
+        if self._backends.data.change_audio_card(name):
+            self._backends.services.reboot()
+        else:
+            logger.warning("Audio card change to %s failed; staying on menu", name)
 
     def _show_domain_picker(self, mode: str) -> None:
         rows: list[Row] = []

@@ -25,7 +25,12 @@ from pistomp_recovery.backends import (
     ProgressCallback,
     ServiceBackend,
 )
-from pistomp_recovery.constants import BOOT_FIRMWARE_DIR, DOMAIN_FACETS, services_for_packages
+from pistomp_recovery.constants import (
+    AUDIO_CARD_SCRIPT,
+    BOOT_FIRMWARE_DIR,
+    DOMAIN_FACETS,
+    services_for_packages,
+)
 from pistomp_recovery.facet import Facet, all_facets, register_default_facets
 from pistomp_recovery.hardware.encoder import (
     NAV_PIN_CLK,
@@ -268,6 +273,21 @@ class RealDataBackend(DataBackend):
             logger.debug("Could not read boot config.txt for audio-card display", exc_info=True)
             return None
         return audio_card.active_card(text)
+
+    def change_audio_card(self, name: str) -> bool:
+        proc = subprocess.run(
+            ["sudo", AUDIO_CARD_SCRIPT, name],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if proc.returncode != 0:
+            logger.warning(
+                "change-audio-card.sh %s failed (rc=%d): %s",
+                name, proc.returncode, proc.stderr.strip(),
+            )
+            return False
+        return True
 
     def factory_plugin_size(self) -> int | None:
         facet = all_facets().get("plugins")

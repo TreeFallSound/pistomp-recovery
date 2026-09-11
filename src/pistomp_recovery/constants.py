@@ -48,6 +48,7 @@ AUDIO_CARD_OVERLAYS: tuple[str, ...] = (
     "iqaudio-codec",
     "hifiberry-dacplusadc",
 )
+AUDIO_CARD_SCRIPT: str = f"{PISTOMP_SRC_DIR}/util/change-audio-card.sh"
 
 LCD_WIDTH: int = 320
 LCD_HEIGHT: int = 240

@@ -158,6 +158,14 @@ class DataBackend(Protocol):
         """
         ...
 
+    def change_audio_card(self, name: str) -> bool:
+        """Select ``name`` as the next-boot audio card in ``config.txt`` and
+        drop any card-specific ALSA state so the new card boots with its own
+        defaults.  Returns True on success.  Does NOT reboot — the caller
+        pairs this with :meth:`ServiceBackend.reboot`.
+        """
+        ...
+
 
 @runtime_checkable
 class ServiceBackend(Protocol):

@@ -317,6 +317,18 @@ class EmulatorDataBackend(DataBackend):
             return None
         return audio_card.active_card(text)
 
+    def change_audio_card(self, name: str) -> bool:
+        config = self._system_dir / "config.txt"
+        try:
+            text = config.read_text()
+        except OSError:
+            return False
+        rewritten = audio_card.select_card(text, name)
+        if rewritten is None:
+            return False
+        config.write_text(rewritten)
+        return True
+
     def factory_plugin_size(self) -> int | None:
         return 925_338_844
 

@@ -28,6 +28,7 @@ from pistomp_recovery.backends import (
     ProgressCallback,
     ServiceBackend,
 )
+from pistomp_recovery.boot import BootFacet
 from pistomp_recovery.constants import (
     DOMAIN_FACETS,
     LCD_HEIGHT,
@@ -36,7 +37,7 @@ from pistomp_recovery.constants import (
 )
 from pistomp_recovery.emulator.controls import FakeEncoderInput, FakeInputManager
 from pistomp_recovery.facet import Facet, RollbackTarget, clear_facets, register_facet
-from pistomp_recovery.file_facet import FileFacet, MissingFactoryBaseline, TrackedFile
+from pistomp_recovery.file_facet import FileFacet, TrackedFile
 from pistomp_recovery.items import Action, Item, PackageUpdate
 from pistomp_recovery.pedalboards import PedalboardFacet
 from pistomp_recovery.service import BootMode, CrashInfo
@@ -253,21 +254,12 @@ class EmulatorDataBackend(DataBackend):
                 TrackedFile("settings.yml", self._config_dir / "settings.yml"),
             ),
         )
-        self._boot_facet = FileFacet(
+        self._boot_facet = BootFacet(
             name="boot",
             repo_dir=self._root / "system.git",
             files=(
-                TrackedFile(
-                    "config.txt",
-                    self._system_dir / "config.txt",
-                    restore=audio_card.restore_config_txt,
-                    missing_factory_baseline=MissingFactoryBaseline.ADOPT_LIVE,
-                ),
-                TrackedFile(
-                    "jack",
-                    self._system_dir / "jack",
-                    missing_factory_baseline=MissingFactoryBaseline.ADOPT_LIVE,
-                ),
+                TrackedFile("config.txt", self._system_dir / "config.txt"),
+                TrackedFile("jack", self._system_dir / "jack"),
             ),
         )
         self._pedalboard_facet = PedalboardFacet(self._pedalboards_dir)

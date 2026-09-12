@@ -1,10 +1,10 @@
-"""Tests for sound card selection preservation across a config.txt rollback."""
+"""Tests for reading and rewriting the audio-card selection in config.txt."""
 
 from __future__ import annotations
 
 import pytest
 
-from pistomp_recovery.audio_card import active_card, restore_config_txt
+from pistomp_recovery.audio_card import active_card, select_card
 
 FACTORY = """\
 dtparam=i2s=on
@@ -49,62 +49,40 @@ class TestActiveCard:
         assert active_card("dtoverlay=midi-uart0\ndtoverlay=spi0-2cs,cs0_pin=14\n") is None
 
 
-class TestRestoreConfig:
+class TestSelectCard:
     @pytest.mark.parametrize(
         "card",
         ["audioinjector-wm8731-audio", "iqaudio-codec", "hifiberry-dacplusadc"],
     )
-    def test_every_supported_card_survives(self, card: str) -> None:
-        merged = restore_config_txt(FACTORY, select(FACTORY, card), "factory")
+    def test_every_supported_card_can_be_selected(self, card: str) -> None:
+        selected = select_card(FACTORY, card)
 
-        assert merged is not None
-        assert active_card(merged) == card
+        assert selected is not None
+        assert active_card(selected) == card
 
-    def test_resets_everything_but_the_card(self) -> None:
-        live = select(FACTORY, "hifiberry-dacplusadc").replace("gpu_mem=16", "gpu_mem=128")
-
-        merged = restore_config_txt(FACTORY, live, "factory")
-
-        assert merged == select(FACTORY, "hifiberry-dacplusadc")
-
-    def test_already_matching_selection_is_a_no_op(self) -> None:
-        assert restore_config_txt(FACTORY, FACTORY, "factory") == FACTORY
-
-    def test_declines_when_card_is_unknown(self) -> None:
-        assert restore_config_txt(FACTORY, select(FACTORY, "allo-boss-dac"), "factory") is None
-
-    def test_declines_when_restored_lacks_a_line_for_the_card(self) -> None:
-        restored = FACTORY.replace("#dtoverlay=hifiberry-dacplusadc\n", "")
-
-        assert (
-            restore_config_txt(restored, select(FACTORY, "hifiberry-dacplusadc"), "factory")
-            is None
+    def test_changes_nothing_but_the_card(self) -> None:
+        assert select_card(FACTORY, "hifiberry-dacplusadc") == select(
+            FACTORY, "hifiberry-dacplusadc"
         )
+
+    def test_already_selected_card_is_a_no_op(self) -> None:
+        assert select_card(FACTORY, "iqaudio-codec") == FACTORY
+
+    def test_declines_when_the_text_has_no_line_for_the_card(self) -> None:
+        without = FACTORY.replace("#dtoverlay=hifiberry-dacplusadc\n", "")
+
+        assert select_card(without, "hifiberry-dacplusadc") is None
 
     def test_preserves_overlay_params_and_indentation(self) -> None:
-        restored = "  dtoverlay=iqaudio-codec,foo=1\n  #dtoverlay=hifiberry-dacplusadc,bar=2\n"
-        live = "  #dtoverlay=iqaudio-codec\n  dtoverlay=hifiberry-dacplusadc\n"
+        text = "  dtoverlay=iqaudio-codec,foo=1\n  #dtoverlay=hifiberry-dacplusadc,bar=2\n"
 
-        merged = restore_config_txt(restored, live, "factory")
-
-        assert (
-            merged == "  #dtoverlay=iqaudio-codec,foo=1\n  dtoverlay=hifiberry-dacplusadc,bar=2\n"
+        assert select_card(text, "hifiberry-dacplusadc") == (
+            "  #dtoverlay=iqaudio-codec,foo=1\n  dtoverlay=hifiberry-dacplusadc,bar=2\n"
         )
 
-    def test_checkpoint_restores_the_saved_card_exactly(self) -> None:
-        live = select(FACTORY, "hifiberry-dacplusadc")
-
-        restored = restore_config_txt(FACTORY, live, "stamp")
-
-        assert restored == FACTORY
-
-
     def test_leaves_unrelated_overlays_alone(self) -> None:
-        restored = FACTORY + "dtoverlay=midi-uart0\n"
-        live = select(FACTORY, "hifiberry-dacplusadc") + "#dtoverlay=midi-uart0\n"
+        selected = select_card(FACTORY + "dtoverlay=midi-uart0\n", "hifiberry-dacplusadc")
 
-        merged = restore_config_txt(restored, live, "factory")
-
-        assert merged is not None
-        assert merged.endswith("dtoverlay=midi-uart0\n")
-        assert "#dtoverlay=midi-uart0" not in merged
+        assert selected is not None
+        assert selected.endswith("dtoverlay=midi-uart0\n")
+        assert "#dtoverlay=midi-uart0" not in selected

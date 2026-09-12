@@ -1,11 +1,8 @@
-"""Audio-card policy for boot ``config.txt`` restoration."""
-
 from __future__ import annotations
 
 import re
 
 from pistomp_recovery.constants import AUDIO_CARD_OVERLAYS
-from pistomp_recovery.facet import RollbackTarget
 
 # Groups: indent, comment marker, overlay name, trailing params.
 _OVERLAY_RE = re.compile(r"^(\s*)(#\s*)?dtoverlay=([A-Za-z0-9_.+-]+)(.*)$")
@@ -60,20 +57,3 @@ def select_card(text: str, selected: str) -> str | None:
             body = _set_enabled(body, name == selected)
         lines.append(body + ending)
     return "".join(lines) if found else None
-
-
-def restore_config_txt(restored: str, live: str, target: RollbackTarget) -> str | None:
-    """Restore config.txt without changing the fitted card during factory reset.
-
-    A checkpoint is a known-good device state and therefore restores exactly.
-    A factory image is hardware-independent, so only its software settings are
-    restored; the currently selected known card is carried across. If the live
-    selection is ambiguous or the factory text cannot represent it, declining
-    is safer than writing a config that may prevent audio or boot.
-    """
-    if target == "stamp":
-        return restored
-    selected = active_card(live)
-    if selected is None:
-        return None
-    return select_card(restored, selected)

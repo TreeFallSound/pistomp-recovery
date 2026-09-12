@@ -4,9 +4,7 @@ import logging
 import shutil
 from dataclasses import dataclass
 from datetime import datetime
-from enum import Enum
 from pathlib import Path
-from typing import Callable
 
 from pistomp_recovery import git_util
 from pistomp_recovery.facet import RollbackTarget
@@ -16,27 +14,13 @@ from pistomp_recovery.util import human_time
 logger = logging.getLogger(__name__)
 
 
-class MissingFactoryBaseline(Enum):
-    """What factory rollback means when an old repo lacks a tracked file."""
-
-    DELETE = "delete"
-    ADOPT_LIVE = "adopt-live"
-
-
-RestorePolicy = Callable[[str, str, RollbackTarget], str | None]
-FactoryBaselineStale = Callable[[str], bool]
-
-
 @dataclass(frozen=True)
 class TrackedFile:
-    """One live file and the business rules for restoring it."""
+    """One live file tracked by a :class:`FileFacet`."""
 
     name: str
     source: Path
     display_name: str | None = None
-    restore: RestorePolicy | None = None
-    missing_factory_baseline: MissingFactoryBaseline = MissingFactoryBaseline.DELETE
-    factory_baseline_is_stale: FactoryBaselineStale | None = None
 
     @property
     def label(self) -> str:
@@ -55,8 +39,8 @@ def _file_equal(a: Path, b: Path) -> bool:
 class FileFacet:
     """Recovery facet for files tracked by a small git repository.
 
-    The facet owns repository mechanics. ``TrackedFile.restore`` contains any
-    domain-specific rule for turning a checked-out file into the live file.
+    Live files stay at their original paths: init and stamp copy them into
+    ``repo_dir`` and commit, rollback checks out a ref and copies them back.
     """
 
     name: str
@@ -76,17 +60,6 @@ class FileFacet:
     def file(self, name: str) -> TrackedFile:
         """Return the tracked-file definition for ``name``."""
         return self._files_by_name[name]
-    def _needs_factory_migration(self, file: TrackedFile) -> bool:
-        if not file.source.exists():
-            return False
-        if not self._exists_in_ref(file.name, git_util.FACTORY_BRANCH):
-            return file.missing_factory_baseline == MissingFactoryBaseline.ADOPT_LIVE
-        if file.factory_baseline_is_stale is None:
-            return False
-        factory = git_util.git(
-            "show", f"{git_util.FACTORY_BRANCH}:{file.name}", cwd=self.repo_dir
-        )
-        return file.factory_baseline_is_stale(factory)
 
     def _repo_path(self, filename: str) -> Path:
         return self.repo_dir / filename
@@ -101,31 +74,18 @@ class FileFacet:
             dst.unlink()
 
     def _restore_to_live(self, file: TrackedFile, target: RollbackTarget) -> None:
-        """Restore one checked-out repo file according to its business policy."""
+        """Copy a checked-out repo file back to its live path.
+
+        ``target`` is unused here; subclasses override this when restoring a
+        particular file means more than copying it.
+        """
         restored = self._repo_path(file.name)
         live = file.source
-        if not restored.exists():
-            if live.exists():
-                live.unlink()
-            return
-
-        if file.restore is None or not live.exists():
+        if restored.exists():
             live.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(restored, live)
-            return
-
-        try:
-            replacement = file.restore(restored.read_text(), live.read_text(), target)
-        except (OSError, UnicodeDecodeError):
-            logger.warning("cannot read %s as text; copying it verbatim", file.name)
-            live.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(restored, live)
-            return
-
-        if replacement is None:
-            logger.warning("restore policy declined %s; leaving the live file as-is", file.name)
-            return
-        live.write_text(replacement)
+        elif live.exists():
+            live.unlink()
 
     def snapshot(self) -> None:
         for file in self.files:
@@ -142,29 +102,6 @@ class FileFacet:
             git_util.create_factory_branch(self.repo_dir)
 
         git_util.git("checkout", git_util.DEVICE_BRANCH, cwd=self.repo_dir, check=False)
-
-    def migrate_factory_baseline(self) -> None:
-        """Adopt live baselines for files added or invalidated by an upgrade.
-
-        This is an explicit migration for repositories created by older
-        recovery versions. It is intentionally not part of observation methods
-        such as ``list_items``.
-        """
-        self.init_repo()
-        migrations = [file for file in self.files if self._needs_factory_migration(file)]
-        if not migrations:
-            return
-
-        names = ", ".join(file.name for file in migrations)
-        logger.info("seeding factory state for %s: %s", self.name, names)
-        for file in migrations:
-            self._copy_to_repo(file)
-        git_util.add_and_commit(self.repo_dir, f"track new {self.name} files")
-        git_util.git("checkout", git_util.FACTORY_BRANCH, cwd=self.repo_dir)
-        for file in migrations:
-            self._copy_to_repo(file)
-        git_util.add_and_commit(self.repo_dir, f"seed factory {self.name} state")
-        git_util.git("checkout", git_util.DEVICE_BRANCH, cwd=self.repo_dir)
 
     # Facet protocol aliases
     init = init_repo

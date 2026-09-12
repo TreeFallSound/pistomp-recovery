@@ -172,19 +172,66 @@ class TestAudioCardPreservation:
         assert live.read_text() == user_text
 
 
+class TestAlsaState:
+    """Factory reset must not restore mixer state for the wrong card."""
+
+    def test_factory_rollback_deletes_the_live_state(self, boot_facet: boot.BootFacet) -> None:
+        live = boot_facet.file("asound.state").source
+        write_all(boot_facet, "seeded iqaudio state\n")
+        boot_facet.init()
+        live.write_text("state written for the fitted card\n")
+
+        boot_facet.rollback("asound.state", "factory")
+
+        assert not live.exists()
+
+    def test_factory_rollback_of_all_files_deletes_the_live_state(
+        self, boot_facet: boot.BootFacet
+    ) -> None:
+        live = boot_facet.file("asound.state").source
+        write_all(boot_facet, "seeded iqaudio state\n")
+        boot_facet.init()
+        live.write_text("state written for the fitted card\n")
+
+        boot_facet.rollback_all("factory")
+
+        assert not live.exists()
+
+    def test_stamp_rollback_restores_the_state(self, boot_facet: boot.BootFacet) -> None:
+        live = boot_facet.file("asound.state").source
+        write_all(boot_facet, "seeded iqaudio state\n")
+        boot_facet.init()
+        live.write_text("state for the fitted card\n")
+        boot_facet.stamp()
+        live.write_text("drifted\n")
+
+        boot_facet.rollback("asound.state", "stamp")
+
+        assert live.read_text() == "state for the fitted card\n"
+
+    def test_other_boot_files_still_restore(self, boot_facet: boot.BootFacet) -> None:
+        write_all(boot_facet, "factory")
+        boot_facet.init()
+        boot_facet.file(PLAIN).source.write_text("changed")
+
+        boot_facet.rollback_all("factory")
+
+        assert boot_facet.file(PLAIN).source.read_text() == "factory"
+
+
 class TestUpgradeFromOlderFileList:
     """Deploying a build that tracks files the existing factory branch predates."""
 
     def upgraded(self, boot_facet: boot.BootFacet) -> boot.BootFacet:
-        """Init a facet tracking only asound.state, then widen it to the full list."""
-        boot_facet.file("asound.state").source.write_text("alsa state\n")
+        """Init a facet tracking only jack, then widen it to the full list."""
+        boot_facet.file("jack").source.write_text("jack settings\n")
         narrow = boot.BootFacet(
             name="boot",
             repo_dir=boot_facet.repo_dir,
-            files=(boot_facet.file("asound.state"),),
+            files=(boot_facet.file("jack"),),
         )
         narrow.init()
-        boot_facet.file("asound.state").source.write_text("dirty before migration\n")
+        boot_facet.file("jack").source.write_text("dirty before migration\n")
         boot_facet.file("config.txt").source.write_text(FACTORY_CONFIG)
         boot_facet.migrate_factory_baseline()
         return boot_facet
@@ -213,7 +260,7 @@ class TestUpgradeFromOlderFileList:
     ) -> None:
         facet = self.upgraded(boot_facet)
 
-        assert (facet.repo_dir / "asound.state").read_text() == "alsa state\n"
+        assert (facet.repo_dir / "jack").read_text() == "jack settings\n"
 
 
     def test_factory_rollback_does_not_delete_a_newly_tracked_file(
@@ -254,12 +301,12 @@ class TestUpgradeFromOlderFileList:
         self, boot_facet: boot.BootFacet
     ) -> None:
         facet = self.upgraded(boot_facet)
-        alsa = facet.file("asound.state").source
-        alsa.write_text("drifted\n")
+        jack = facet.file("jack").source
+        jack.write_text("drifted\n")
 
-        facet.rollback("asound.state", "factory")
+        facet.rollback("jack", "factory")
 
-        assert alsa.read_text() == "alsa state\n"
+        assert jack.read_text() == "jack settings\n"
 
 
 def git_branch_exists(repo: Path, branch: str) -> bool:

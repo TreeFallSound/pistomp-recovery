@@ -13,13 +13,14 @@ logger = logging.getLogger(__name__)
 BOOT_REPO: Path = Path(RECOVERY_DIR) / "system.git"
 
 CONFIG_TXT = "config.txt"
+ALSA_STATE = "asound.state"
 
 BOOT_FILES: tuple[TrackedFile, ...] = (
     TrackedFile(CONFIG_TXT, Path(BOOT_FIRMWARE_DIR) / "config.txt"),
     TrackedFile("cmdline.txt", Path(BOOT_FIRMWARE_DIR) / "cmdline.txt"),
     TrackedFile("pistomp.conf", Path(BOOT_FIRMWARE_DIR) / "pistomp.conf"),
     TrackedFile("jack", Path("/etc/default/jack")),
-    TrackedFile("asound.state", Path("/var/lib/alsa/asound.state")),
+    TrackedFile(ALSA_STATE, Path("/var/lib/alsa/asound.state")),
 )
 
 # Recovery releases through 0.1.0-32 tracked /boot/config.txt and
@@ -51,6 +52,10 @@ class BootFacet(FileFacet):
         text has no line for it, leaving config.txt alone is safer than writing
         a config that may leave the device without audio.
         """
+        if file.name == ALSA_STATE and target == "factory":
+            self._discard_alsa_state(file)
+            return
+
         restored = self._repo_path(file.name)
         if file.name != CONFIG_TXT or target != "factory" or not restored.exists():
             super()._restore_to_live(file, target)
@@ -68,6 +73,11 @@ class BootFacet(FileFacet):
             logger.warning("cannot identify the fitted audio card; leaving %s as-is", file.name)
             return
         file.source.write_text(merged)
+
+    def _discard_alsa_state(self, file: TrackedFile) -> None:
+        if file.source.exists():
+            file.source.unlink()
+            logger.info("discarded %s; pi-Stomp restores the fitted card's own state", file.name)
 
     def _needs_factory_baseline(self, file: TrackedFile) -> bool:
         if not file.source.exists():

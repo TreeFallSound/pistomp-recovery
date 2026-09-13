@@ -7,30 +7,33 @@ from pathlib import Path
 
 import pytest
 
-from pistomp_recovery import config
+from pistomp_recovery.file_facet import FileFacet, TrackedFile
 
 
 @pytest.fixture
-def config_facet(tmp_path: Path) -> config.FileFacet:
-    """Return an isolated config FileFacet backed by temp directories."""
+def config_facet(tmp_path: Path) -> FileFacet:
+    """Return an isolated config FileFacet backed by temporary directories."""
     source = tmp_path / "config"
     repo = tmp_path / "config.git"
     source.mkdir()
     repo.mkdir()
-    return config.FileFacet(
+    return FileFacet(
         name="config",
         repo_dir=repo,
-        files=("default_config.yml", "settings.yml"),
-        source_resolver=lambda filename: source / filename,
-        display_name_resolver=lambda filename: filename,
+        files=(
+            TrackedFile("default_config.yml", source / "default_config.yml"),
+            TrackedFile("settings.yml", source / "settings.yml"),
+        ),
     )
 
 
+def source_dir(facet: FileFacet) -> Path:
+    return facet.file("default_config.yml").source.parent
+
+
 class TestInitConfig:
-    def test_copies_existing_files_as_factory_state(
-        self, config_facet: config.FileFacet
-    ) -> None:
-        source = config_facet._source_path("default_config.yml").parent
+    def test_copies_existing_files_as_factory_state(self, config_facet: FileFacet) -> None:
+        source = source_dir(config_facet)
         (source / "default_config.yml").write_text("factory default")
         (source / "settings.yml").write_text("factory settings")
 
@@ -41,31 +44,28 @@ class TestInitConfig:
         assert (repo / "settings.yml").read_text() == "factory settings"
         assert git_branch_exists(repo, "factory")
 
-    def test_factory_branch_created_only_once(
-        self, config_facet: config.FileFacet
-    ) -> None:
-        source = config_facet._source_path("default_config.yml").parent
+    def test_factory_branch_created_only_once(self, config_facet: FileFacet) -> None:
+        source = source_dir(config_facet)
         (source / "default_config.yml").write_text("v1")
 
         config_facet.init()
         (source / "default_config.yml").write_text("v2")
         config_facet.init()
 
-        # Second init should not re-snapshot; factory stays at v1.
         assert (config_facet.repo_dir / "default_config.yml").read_text() == "v1"
 
 
 class TestDirtyDetection:
-    def test_clean_when_files_match(self, config_facet: config.FileFacet) -> None:
-        source = config_facet._source_path("default_config.yml").parent
+    def test_clean_when_files_match(self, config_facet: FileFacet) -> None:
+        source = source_dir(config_facet)
         (source / "default_config.yml").write_text("same")
         config_facet.init()
 
         items = {item.name: item for item in config_facet.list_items()}
         assert not items["default_config.yml"].dirty
 
-    def test_dirty_when_live_file_changes(self, config_facet: config.FileFacet) -> None:
-        source = config_facet._source_path("default_config.yml").parent
+    def test_dirty_when_live_file_changes(self, config_facet: FileFacet) -> None:
+        source = source_dir(config_facet)
         (source / "default_config.yml").write_text("same")
         config_facet.init()
         (source / "default_config.yml").write_text("changed")
@@ -73,8 +73,8 @@ class TestDirtyDetection:
         items = {item.name: item for item in config_facet.list_items()}
         assert items["default_config.yml"].dirty
 
-    def test_dirty_when_live_file_deleted(self, config_facet: config.FileFacet) -> None:
-        source = config_facet._source_path("settings.yml").parent
+    def test_dirty_when_live_file_deleted(self, config_facet: FileFacet) -> None:
+        source = source_dir(config_facet)
         (source / "settings.yml").write_text("exists")
         config_facet.init()
         (source / "settings.yml").unlink()
@@ -84,10 +84,8 @@ class TestDirtyDetection:
 
 
 class TestStampAndRollback:
-    def test_stamp_captures_current_state(
-        self, config_facet: config.FileFacet
-    ) -> None:
-        source = config_facet._source_path("default_config.yml").parent
+    def test_stamp_captures_current_state(self, config_facet: FileFacet) -> None:
+        source = source_dir(config_facet)
         (source / "default_config.yml").write_text("v1")
         config_facet.init()
         (source / "default_config.yml").write_text("v2")
@@ -98,10 +96,8 @@ class TestStampAndRollback:
         assert len(tag) == 40  # commit hash
         assert (config_facet.repo_dir / "default_config.yml").read_text() == "v2"
 
-    def test_rollback_to_factory_restores_deleted_file(
-        self, config_facet: config.FileFacet
-    ) -> None:
-        source = config_facet._source_path("settings.yml").parent
+    def test_rollback_to_factory_restores_deleted_file(self, config_facet: FileFacet) -> None:
+        source = source_dir(config_facet)
         (source / "settings.yml").write_text("factory")
         config_facet.init()
         (source / "settings.yml").unlink()
@@ -111,9 +107,9 @@ class TestStampAndRollback:
         assert (source / "settings.yml").read_text() == "factory"
 
     def test_rollback_to_factory_deletes_file_not_present_at_factory(
-        self, config_facet: config.FileFacet
+        self, config_facet: FileFacet
     ) -> None:
-        source = config_facet._source_path("settings.yml").parent
+        source = source_dir(config_facet)
         (source / "default_config.yml").write_text("factory")
         # settings.yml does not exist at factory time.
         config_facet.init()

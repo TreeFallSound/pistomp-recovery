@@ -227,8 +227,11 @@ class TestSystemDomainPackages:
         harness.inject(InputEvent.CLICK)                     # dismiss done
         harness.inject()
 
-        assert config_txt.read_text() == "# factory config.txt\n", (
-            f"config.txt not restored: {config_txt.read_text()!r}"
+        restored = config_txt.read_text()
+        assert "gpu_mem=16" in restored, f"config.txt not restored: {restored!r}"
+        # ...except the fitted sound card, which a rollback must never change
+        assert "\ndtoverlay=hifiberry-dacplusadc\n" in restored, (
+            f"sound card selection lost: {restored!r}"
         )
         # settings.yml must NOT be affected — action was bound to the boot facet
         assert settings_yml.read_text() == "# changed settings\n", (
@@ -263,7 +266,7 @@ class TestCheckpointEmptyWhenClean:
 
         # config.txt is dirty in the emulator (changed after stamp)
         config_txt = data._system_dir / "config.txt"
-        assert config_txt.read_text() == "# changed config.txt\n"
+        assert "gpu_mem=128" in config_txt.read_text()
 
         harness.select("Factory Reset")
         harness.inject()

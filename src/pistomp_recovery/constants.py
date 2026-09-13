@@ -38,6 +38,18 @@ FACTORY_LV2_BUNDLES_FILE: str = "/etc/pistomp/factory-lv2-bundles.list"
 # predating the list, in which case no bundles are excluded.
 FACTORY_LV2_SYSTEM_BUNDLES_FILE: str = "/etc/pistomp/factory-lv2-system-bundles.list"
 LV2_PLUGINS_URL: str = "https://www.treefallsound.com/downloads/lv2plugins.tar.gz"
+BOOT_FIRMWARE_DIR: str = "/boot/firmware"
+
+# Mutually exclusive in config.txt: exactly one is uncommented. Keep in step
+# with ../pi-stomp/util/change-audio-card.sh and the config.txt shipped by
+# ../pi-gen-pistomp/stage2/05-pistomp/files/.
+AUDIO_CARD_OVERLAYS: tuple[str, ...] = (
+    "audioinjector-wm8731-audio",
+    "iqaudio-codec",
+    "hifiberry-dacplusadc",
+)
+AUDIO_CARD_SCRIPT: str = f"{PISTOMP_SRC_DIR}/util/change-audio-card.sh"
+
 LCD_WIDTH: int = 320
 LCD_HEIGHT: int = 240
 

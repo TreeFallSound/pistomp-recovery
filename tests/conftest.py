@@ -186,6 +186,24 @@ class FakeDataBackend(DataBackend):
         self._install_progress: list[tuple[str, float, str, bool]] = []
         self._domain_summaries: dict[str, dict[str, str]] = {}
         self._package_detail_text: list[str] = []
+        self._audio_card: str | None = None
+        self._card_changes: list[str] = []
+        self._card_change_success: bool = True
+
+    def set_audio_card(self, name: str | None) -> None:
+        self._audio_card = name
+
+    def audio_card(self) -> str | None:
+        return self._audio_card
+
+    def change_audio_card(self, name: str) -> bool:
+        from pistomp_recovery.constants import AUDIO_CARD_OVERLAYS
+
+        self._card_changes.append(name)
+        if self._card_change_success and name in AUDIO_CARD_OVERLAYS:
+            self._audio_card = name
+            return True
+        return False
 
     def set_items(self, mode: str, domain: str, items: list[Item]) -> None:
         self._items.setdefault(mode, {})[domain] = items

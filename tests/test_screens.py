@@ -61,7 +61,6 @@ def test_domain_screen_refreshes_after_successful_action(
 
     harness.select("Install")
     harness.inject(InputEvent.RIGHT, InputEvent.CLICK)  # Yes → confirm
-    harness.inject(InputEvent.CLICK)  # dismiss the done screen
 
     # Dismissing the done screen should re-query the domain. Because the
     # domain is now empty, the app pops back to the menu below it.
@@ -70,6 +69,7 @@ def test_domain_screen_refreshes_after_successful_action(
         "Restart Jack",
         "Restart MOD",
         "Updates",
+        "Audio: unknown",
         "Reset to Checkpoint",
         "Factory Reset",
         "Reboot",
@@ -133,17 +133,98 @@ def _push(harness: AppHarness, title: str, rows: list[Row], back: bool) -> MenuS
     return screen
 
 
-def test_main_menu_renders(recovery_app: AppHarness, snapshot: Callable[..., None]) -> None:
-    """The root menu shows the inverted title, exit icon, and top-level rows."""
+def test_main_menu_renders(
+    recovery_app: AppHarness, fake_data: FakeDataBackend, snapshot: Callable[..., None]
+) -> None:
+    """The root menu shows the audio card, inverted title, exit icon, and top-level rows."""
+    fake_data.set_audio_card("iqaudio-codec")
     harness = recovery_app
+    harness.app._screen_stack.clear()
+    harness.app._show_main_menu()
     harness.inject()
     snapshot()
 
     labels = harness.nav_labels()
     assert labels[0] == ICON_EXIT  # header icon is exit on the root menu
+    assert "Audio: iqaudio-codec" in labels
     assert "Restart Jack" in labels and "Restart MOD" in labels
     assert "Reset to Checkpoint" in labels
     assert "Reboot" in labels and "Power Off" in labels
+
+
+def test_main_menu_shows_unknown_audio_card(
+    recovery_app: AppHarness, fake_data: FakeDataBackend, snapshot: Callable[..., None]
+) -> None:
+    """An ambiguous/unknown live overlay renders as ``Audio: unknown``."""
+    fake_data.set_audio_card(None)
+    harness = recovery_app
+    harness.app._screen_stack.clear()
+    harness.app._show_main_menu()
+    harness.inject()
+    snapshot()
+
+    assert "Audio: unknown" in harness.nav_labels()
+
+
+def test_audio_card_submenu_renders(
+    recovery_app: AppHarness, fake_data: FakeDataBackend, snapshot: Callable[..., None]
+) -> None:
+    """Selecting the audio row opens a submenu listing the three known cards."""
+    fake_data.set_audio_card("iqaudio-codec")
+    harness = recovery_app
+    harness.app._screen_stack.clear()
+    harness.app._show_main_menu()
+    harness.inject()
+    harness.select("Audio:")
+    snapshot()
+
+    assert harness.nav_labels() == [
+        ICON_BACK,
+        "audioinjector-wm8731-audio",
+        "iqaudio-codec",
+        "hifiberry-dacplusadc",
+    ]
+
+
+def test_audio_card_confirm_reboots(
+    recovery_app: AppHarness,
+    fake_data: FakeDataBackend,
+    fake_services: FakeServiceBackend,
+    snapshot: Callable[..., None],
+) -> None:
+    """Confirming a card change writes the new card and reboots the device."""
+    fake_data.set_audio_card("iqaudio-codec")
+    harness = recovery_app
+    harness.app._screen_stack.clear()
+    harness.app._show_main_menu()
+    harness.inject()
+    harness.select("Audio:")
+    harness.select("hifiberry-dacplusadc")
+    snapshot("confirm")
+
+    harness.inject(InputEvent.RIGHT, InputEvent.CLICK)  # focus Yes, confirm
+    assert fake_data._card_changes == ["hifiberry-dacplusadc"]
+    assert fake_services.calls[-1] == "reboot"
+
+
+def test_audio_card_change_failure_no_reboot(
+    recovery_app: AppHarness,
+    fake_data: FakeDataBackend,
+    fake_services: FakeServiceBackend,
+) -> None:
+    """When the script fails the device is not rebooted."""
+    fake_data.set_audio_card("iqaudio-codec")
+    fake_data._card_change_success = False
+    harness = recovery_app
+    harness.app._screen_stack.clear()
+    harness.app._show_main_menu()
+    harness.inject()
+    harness.select("Audio:")
+    harness.select("hifiberry-dacplusadc")
+    harness.inject(InputEvent.RIGHT, InputEvent.CLICK)
+
+    assert fake_data._card_changes == ["hifiberry-dacplusadc"]
+    assert "reboot" not in fake_services.calls
 
 
 def test_submenu_has_back_icon(recovery_app: AppHarness, snapshot: Callable[..., None]) -> None:

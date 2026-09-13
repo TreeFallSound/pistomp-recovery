@@ -66,10 +66,10 @@ def test_domain_screen_refreshes_after_successful_action(
     # domain is now empty, the app pops back to the menu below it.
     assert fake_data._installed == [["a"]]  # type: ignore[attr-defined]
     assert harness.row_labels() == [
-        "Audio: unknown",
         "Restart Jack",
         "Restart MOD",
         "Updates",
+        "Audio: unknown",
         "Reset to Checkpoint",
         "Factory Reset",
         "Reboot",

@@ -272,8 +272,6 @@ class RecoveryAppCore:
         services = self._backends.services
         card = self._backends.data.audio_card()
         rows: list[Row] = [
-            Row((Target(f"Audio: {card or 'unknown'}", self._show_audio_card_menu),)),
-            Row(prefix="---", separator=True),
             Row(
                 (
                     Target(
@@ -298,6 +296,7 @@ class RecoveryAppCore:
             label = f"{n} package{'s' if n != 1 else ''} unverified"
             rows.append(Row((Target(label, lambda u=unverified: self._show_unverified_menu(u)),)))
         rows += [
+            Row((Target(f"Audio: {card or 'unknown'}", self._show_audio_card_menu),)),
             Row(
                 (
                     Target(

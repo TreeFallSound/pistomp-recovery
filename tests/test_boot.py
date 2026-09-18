@@ -173,31 +173,73 @@ class TestAudioCardPreservation:
 
 
 class TestAlsaState:
-    """Factory reset must not restore mixer state for the wrong card."""
+    """Factory reset seeds mixer state for the fitted card; it never deletes."""
 
-    def test_factory_rollback_deletes_the_live_state(self, boot_facet: boot.BootFacet) -> None:
-        live = boot_facet.file("asound.state").source
+    @pytest.fixture
+    def seed_calls(self, monkeypatch: pytest.MonkeyPatch) -> list[str]:
+        """Capture seed.sh invocations; assert the overlay each was for.
+
+        boot.py calls boot.subprocess.run, and the fixture's boot_facet
+        writes a fitted overlay into its tmp config.txt, so the fitted-card
+        read works without /usr/lib/pistomp existing.
+        """
+        calls: list[str] = []
+        monkeypatch.setattr(boot, "subprocess", _fake_seed_module(calls))
+        return calls
+
+    def config_txt(self, facet: boot.BootFacet) -> Path:
+        return facet.file("config.txt").source
+
+    def set_hifiberry(self, facet: boot.BootFacet) -> None:
+        self.config_txt(facet).write_text(
+            FACTORY_CONFIG.replace("dtoverlay=iqaudio-codec", "#dtoverlay=iqaudio-codec")
+            .replace("#dtoverlay=hifiberry-dacplusadc", "dtoverlay=hifiberry-dacplusadc")
+        )
+
+    def test_factory_rollback_of_all_files_seeds_the_state(
+        self, boot_facet: boot.BootFacet, seed_calls: list[str]
+    ) -> None:
         write_all(boot_facet, "seeded iqaudio state\n")
         boot_facet.init()
-        live.write_text("state written for the fitted card\n")
 
-        boot_facet.rollback("asound.state", "factory")
+        boot_facet.rollback_all("factory")
 
-        assert not live.exists()
+        assert seed_calls == ["iqaudio-codec"]
 
-    def test_factory_rollback_of_all_files_deletes_the_live_state(
-        self, boot_facet: boot.BootFacet
+    def test_unknown_or_ambiguous_card_leaves_state_untouched(
+        self, boot_facet: boot.BootFacet, seed_calls: list[str]
     ) -> None:
         live = boot_facet.file("asound.state").source
         write_all(boot_facet, "seeded iqaudio state\n")
         boot_facet.init()
         live.write_text("state written for the fitted card\n")
+        self.config_txt(boot_facet).write_text(
+            FACTORY_CONFIG.replace(
+                "dtoverlay=iqaudio-codec", "#dtoverlay=iqaudio-codec\ndtoverlay=allo-boss-dac"
+            )
+        )
 
-        boot_facet.rollback_all("factory")
+        boot_facet.rollback("asound.state", "factory")
 
-        assert not live.exists()
+        # Never-guess: no seed invocation; the file keeps its git-restored
+        # factory baseline content.
+        assert seed_calls == []
+        assert live.read_text() == "seeded iqaudio state\n"
 
-    def test_stamp_rollback_restores_the_state(self, boot_facet: boot.BootFacet) -> None:
+    def test_hifiberry_fitted_seeds_hifiberry(
+        self, boot_facet: boot.BootFacet, seed_calls: list[str]
+    ) -> None:
+        write_all(boot_facet, "seeded iqaudio state\n")
+        boot_facet.init()
+        self.set_hifiberry(boot_facet)
+
+        boot_facet.rollback("asound.state", "factory")
+
+        assert seed_calls == ["hifiberry-dacplusadc"]
+
+    def test_stamp_rollback_restores_the_state(
+        self, boot_facet: boot.BootFacet, seed_calls: list[str]
+    ) -> None:
         live = boot_facet.file("asound.state").source
         write_all(boot_facet, "seeded iqaudio state\n")
         boot_facet.init()
@@ -208,8 +250,11 @@ class TestAlsaState:
         boot_facet.rollback("asound.state", "stamp")
 
         assert live.read_text() == "state for the fitted card\n"
+        assert seed_calls == []
 
-    def test_other_boot_files_still_restore(self, boot_facet: boot.BootFacet) -> None:
+    def test_other_boot_files_still_restore(
+        self, boot_facet: boot.BootFacet, seed_calls: list[str]
+    ) -> None:
         write_all(boot_facet, "factory")
         boot_facet.init()
         boot_facet.file(PLAIN).source.write_text("changed")
@@ -217,6 +262,23 @@ class TestAlsaState:
         boot_facet.rollback_all("factory")
 
         assert boot_facet.file(PLAIN).source.read_text() == "factory"
+        assert seed_calls == ["iqaudio-codec"]
+
+
+def _fake_seed_module(calls: list[str]):
+    """A subprocess stand-in that records seed.sh invocations and succeeds."""
+    import subprocess as real_subprocess
+    from types import SimpleNamespace
+
+    class _Fake:
+        CompletedProcess = real_subprocess.CompletedProcess
+
+        @staticmethod
+        def run(cmd, **kwargs):
+            calls.append(cmd[1])
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    return _Fake
 
 
 class TestUpgradeFromOlderFileList:

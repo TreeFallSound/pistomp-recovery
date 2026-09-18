@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import logging
+import subprocess
 from pathlib import Path
 
 from pistomp_recovery import audio_card, git_util
-from pistomp_recovery.constants import BOOT_FIRMWARE_DIR, RECOVERY_DIR
+from pistomp_recovery.constants import BOOT_FIRMWARE_DIR, RECOVERY_DIR, SEED_SCRIPT
 from pistomp_recovery.facet import RollbackTarget
 from pistomp_recovery.file_facet import FileFacet, TrackedFile
 
@@ -53,8 +54,7 @@ class BootFacet(FileFacet):
         a config that may leave the device without audio.
         """
         if file.name == ALSA_STATE and target == "factory":
-            self._discard_alsa_state(file)
-            return
+            self._seed_alsa_state(file)
 
         restored = self._repo_path(file.name)
         if file.name != CONFIG_TXT or target != "factory" or not restored.exists():
@@ -74,10 +74,35 @@ class BootFacet(FileFacet):
             return
         file.source.write_text(merged)
 
-    def _discard_alsa_state(self, file: TrackedFile) -> None:
-        if file.source.exists():
-            file.source.unlink()
-            logger.info("discarded %s; pi-Stomp restores the fitted card's own state", file.name)
+    def _seed_alsa_state(self, file: TrackedFile) -> None:
+        """Write the packaged known-good state for the fitted card.
+
+        The fitted card is read from the enabled overlay in the live
+        config.txt — the same `active_card` read the config.txt merge uses,
+        with the same never-guess policy: when the selection is absent or
+        ambiguous, leave the state file alone rather than seed a state that
+        matches no enumerated card.
+        """
+        try:
+            config = self.file(CONFIG_TXT).source.read_text()
+        except (OSError, UnicodeDecodeError):
+            config = None
+        fitted = audio_card.active_card(config) if config is not None else None
+        if fitted is None:
+            logger.warning(
+                "cannot identify the fitted audio card; leaving %s as-is", file.name
+            )
+            return
+        proc = subprocess.run(
+            [SEED_SCRIPT, fitted], check=False, capture_output=True, text=True
+        )
+        if proc.returncode != 0:
+            logger.warning(
+                "seed.sh %s failed (rc=%d); leaving %s as-is",
+                fitted, proc.returncode, file.name,
+            )
+        else:
+            logger.info("seeded %s for %s", file.name, fitted)
 
     def _needs_factory_baseline(self, file: TrackedFile) -> bool:
         if not file.source.exists():

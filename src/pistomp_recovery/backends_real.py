@@ -26,9 +26,9 @@ from pistomp_recovery.backends import (
     ServiceBackend,
 )
 from pistomp_recovery.constants import (
-    AUDIO_CARD_SCRIPT,
     BOOT_FIRMWARE_DIR,
     DOMAIN_FACETS,
+    SEED_SCRIPT,
     services_for_packages,
 )
 from pistomp_recovery.facet import Facet, all_facets, register_default_facets
@@ -60,6 +60,28 @@ from pistomp_recovery.ui.input import InputManager
 from pistomp_recovery.ui.widgets.misc import Box, InputEvent
 
 logger = logging.getLogger(__name__)
+
+
+def _seed_alsa_state(name: str) -> bool:
+    """Seed /var/lib/alsa/asound.state for overlay ``name`` via seed.sh.
+
+    seed.sh ships in pistomp-audio (>= 1.1.0-1), which this package
+    Depends on. Runs as root: the recovery service runs with CAP_DAC_OVERRIDE
+    style device access but asound.state is root-owned.
+    """
+    proc = subprocess.run(
+        [SEED_SCRIPT, name],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode != 0:
+        logger.warning(
+            "seed.sh %s failed (rc=%d): %s",
+            name, proc.returncode, proc.stderr.strip(),
+        )
+        return False
+    return True
 
 
 class LcdDisplayBackend(DisplayBackend):
@@ -275,17 +297,25 @@ class RealDataBackend(DataBackend):
         return audio_card.active_card(text)
 
     def change_audio_card(self, name: str) -> bool:
-        proc = subprocess.run(
-            ["sudo", AUDIO_CARD_SCRIPT, name],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-        if proc.returncode != 0:
-            logger.warning(
-                "change-audio-card.sh %s failed (rc=%d): %s",
-                name, proc.returncode, proc.stderr.strip(),
-            )
+        config = Path(BOOT_FIRMWARE_DIR) / "config.txt"
+        try:
+            text = config.read_text()
+        except OSError:
+            logger.warning("Could not read %s for audio-card change", config, exc_info=True)
+            return False
+        rewritten = audio_card.select_card(text, name)
+        if rewritten is None:
+            logger.warning("Audio card %s is not a known overlay in config.txt", name)
+            return False
+        # Seed the ALSA state for the new card first: if config.txt writing
+        # then fails, the worst case is a stale overlay line with the old
+        # card's state — no worse than before the operation started.
+        if not _seed_alsa_state(name):
+            return False
+        try:
+            config.write_text(rewritten)
+        except OSError:
+            logger.warning("Could not write %s for audio-card change", config, exc_info=True)
             return False
         return True
 

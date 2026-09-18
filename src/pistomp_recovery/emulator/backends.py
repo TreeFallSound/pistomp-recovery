@@ -319,6 +319,9 @@ class EmulatorDataBackend(DataBackend):
         if rewritten is None:
             return False
         config.write_text(rewritten)
+        # Mirror the real backend's seed: write a marker file where the
+        # emulator's fake root keeps the state, so tests can assert seeding.
+        (self._system_dir / "asound.state").write_text(f"seeded for {name}\n")
         return True
 
     def factory_plugin_size(self) -> int | None:

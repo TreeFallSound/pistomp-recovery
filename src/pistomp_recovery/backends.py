@@ -150,6 +150,23 @@ class DataBackend(Protocol):
         """
         ...
 
+    def audio_card(self) -> str | None:
+        """Return the audio-card overlay name selected in the live boot
+        ``config.txt``, or ``None`` when the selection is absent, ambiguous,
+        or unknown to the recovery build.  Purely informational — factory
+        rollback uses its own policy in ``audio_card.restore_config_txt``.
+        """
+        ...
+
+    def change_audio_card(self, name: str) -> bool:
+        """Select ``name`` as the next-boot audio card in ``config.txt`` and
+        seed the ALSA state for it from the packaged known-good state, so
+        the new card boots with a working mixer configuration.  Returns
+        True on success.  Does NOT reboot — the caller pairs this with
+        :meth:`ServiceBackend.reboot`.
+        """
+        ...
+
 
 @runtime_checkable
 class ServiceBackend(Protocol):

@@ -38,6 +38,22 @@ FACTORY_LV2_BUNDLES_FILE: str = "/etc/pistomp/factory-lv2-bundles.list"
 # predating the list, in which case no bundles are excluded.
 FACTORY_LV2_SYSTEM_BUNDLES_FILE: str = "/etc/pistomp/factory-lv2-system-bundles.list"
 LV2_PLUGINS_URL: str = "https://www.treefallsound.com/downloads/lv2plugins.tar.gz"
+BOOT_FIRMWARE_DIR: str = "/boot/firmware"
+
+# Mutually exclusive in config.txt: exactly one is uncommented. Keep in step
+# with pistomp-audio's seed.sh and the config.txt shipped by
+# ../pi-gen-pistomp/stage2/05-pistomp/files/.
+AUDIO_CARD_OVERLAYS: tuple[str, ...] = (
+    "audioinjector-wm8731-audio",
+    "iqaudio-codec",
+    "hifiberry-dacplusadc",
+)
+
+# Seeds /var/lib/alsa/asound.state for an overlay. Shipped by pistomp-audio
+# (>= 1.1.0-1); see docs/configure-audio-service-plan.md in pi-gen-pistomp.
+SEED_SCRIPT: str = "/usr/lib/pistomp/alsa/seed.sh"
+ALSA_STATE_FILE: str = "/var/lib/alsa/asound.state"
+
 LCD_WIDTH: int = 320
 LCD_HEIGHT: int = 240
 

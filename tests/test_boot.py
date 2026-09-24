@@ -8,116 +8,367 @@ from pathlib import Path
 import pytest
 
 from pistomp_recovery import boot
+from pistomp_recovery.file_facet import TrackedFile
+
+PLAIN = "cmdline.txt"
+
+FACTORY_CONFIG = """\
+[all]
+# Enable the sound card (uncomment only one)
+#dtoverlay=audioinjector-wm8731-audio
+dtoverlay=iqaudio-codec
+#dtoverlay=hifiberry-dacplusadc
+
+gpu_mem=16
+"""
 
 
 @pytest.fixture
-def boot_facet(tmp_path: Path) -> boot.FileFacet:
-    """Return an isolated boot FileFacet backed by temp directories."""
+def boot_facet(tmp_path: Path) -> boot.BootFacet:
+    """Return an isolated BootFacet backed by temporary directories."""
     source = tmp_path / "system"
     repo = tmp_path / "system.git"
     source.mkdir()
     repo.mkdir()
 
-    # Map the absolute system paths used by the module into our temp tree.
-    boot_dir = source / "boot"
-    etc = source / "etc"
+    firmware = source / "boot" / "firmware"
+    default = source / "etc" / "default"
     var = source / "var" / "lib" / "alsa"
-    boot_dir.mkdir()
-    etc.mkdir()
+    firmware.mkdir(parents=True)
+    default.mkdir(parents=True)
     var.mkdir(parents=True)
 
-    test_files = {
-        "config.txt": str(boot_dir / "config.txt"),
-        "cmdline.txt": str(boot_dir / "cmdline.txt"),
-        "pistomp.conf": str(boot_dir / "pistomp.conf"),
-        "jackdrc": str(etc / "jackdrc"),
-        "asound.state": str(var / "asound.state"),
+    paths = {
+        "config.txt": firmware / "config.txt",
+        "cmdline.txt": firmware / "cmdline.txt",
+        "pistomp.conf": firmware / "pistomp.conf",
+        "jack": default / "jack",
+        "asound.state": var / "asound.state",
     }
-
-    return boot.FileFacet(
+    return boot.BootFacet(
         name="boot",
         repo_dir=repo,
-        files=tuple(test_files.keys()),
-        source_resolver=lambda name: Path(test_files[name]),
-        display_name_resolver=lambda name: name,
+        files=tuple(
+            TrackedFile(name=file.name, source=paths[file.name], display_name=file.display_name)
+            for file in boot.BOOT_FILES
+        ),
     )
 
 
+def write_all(facet: boot.BootFacet, text: str) -> None:
+    for file in facet.files:
+        file.source.write_text(FACTORY_CONFIG if file.name == "config.txt" else text)
+
+
 class TestInitBoot:
-    def test_copies_existing_files_as_factory_state(
-        self, boot_facet: boot.FileFacet
-    ) -> None:
-        for filename in boot_facet.files:
-            Path(boot_facet._source_path(filename)).write_text(
-                f"factory {filename}"
-            )
+    def test_copies_existing_files_as_factory_state(self, boot_facet: boot.BootFacet) -> None:
+        write_all(boot_facet, "factory")
 
         boot_facet.init()
 
-        for filename in boot_facet.files:
-            assert (boot_facet.repo_dir / filename).read_text() == f"factory {filename}"
+        assert (boot_facet.repo_dir / PLAIN).read_text() == "factory"
+        assert (boot_facet.repo_dir / "config.txt").read_text() == FACTORY_CONFIG
         assert git_branch_exists(boot_facet.repo_dir, "factory")
 
-    def test_factory_branch_created_only_once(
-        self, boot_facet: boot.FileFacet
-    ) -> None:
-        first = boot_facet.files[0]
-        Path(boot_facet._source_path(first)).write_text("v1")
+    def test_factory_branch_created_only_once(self, boot_facet: boot.BootFacet) -> None:
+        boot_facet.file(PLAIN).source.write_text("v1")
 
         boot_facet.init()
-        Path(boot_facet._source_path(first)).write_text("v2")
+        boot_facet.file(PLAIN).source.write_text("v2")
         boot_facet.init()
 
-        assert (boot_facet.repo_dir / first).read_text() == "v1"
+        assert (boot_facet.repo_dir / PLAIN).read_text() == "v1"
 
 
 class TestDirtyDetection:
-    def test_clean_when_files_match(self, boot_facet: boot.FileFacet) -> None:
-        for filename in boot_facet.files:
-            Path(boot_facet._source_path(filename)).write_text("same")
+    def test_clean_when_files_match(self, boot_facet: boot.BootFacet) -> None:
+        write_all(boot_facet, "same")
         boot_facet.init()
 
         items = {item.name: item for item in boot_facet.list_items()}
         assert not any(item.dirty for item in items.values())
 
-    def test_dirty_when_live_file_changes(
-        self, boot_facet: boot.FileFacet
-    ) -> None:
-        first = boot_facet.files[0]
-        Path(boot_facet._source_path(first)).write_text("same")
+    def test_dirty_when_live_file_changes(self, boot_facet: boot.BootFacet) -> None:
+        boot_facet.file(PLAIN).source.write_text("same")
         boot_facet.init()
-        Path(boot_facet._source_path(first)).write_text("changed")
+        boot_facet.file(PLAIN).source.write_text("changed")
 
         items = {item.name: item for item in boot_facet.list_items()}
-        assert items[first].dirty
+        assert items[PLAIN].dirty
 
 
 class TestStampAndRollback:
-    def test_stamp_captures_current_state(
-        self, boot_facet: boot.FileFacet
-    ) -> None:
-        first = boot_facet.files[0]
-        Path(boot_facet._source_path(first)).write_text("v1")
+    def test_stamp_captures_current_state(self, boot_facet: boot.BootFacet) -> None:
+        boot_facet.file(PLAIN).source.write_text("v1")
         boot_facet.init()
-        Path(boot_facet._source_path(first)).write_text("v2")
+        boot_facet.file(PLAIN).source.write_text("v2")
 
         tag = boot_facet.stamp()
 
         assert tag is not None
         assert len(tag) == 40  # commit hash
-        assert (boot_facet.repo_dir / first).read_text() == "v2"
+        assert (boot_facet.repo_dir / PLAIN).read_text() == "v2"
 
-    def test_rollback_to_factory_restores_changed_file(
-        self, boot_facet: boot.FileFacet
-    ) -> None:
-        first = boot_facet.files[0]
-        Path(boot_facet._source_path(first)).write_text("factory")
+    def test_rollback_to_factory_restores_changed_file(self, boot_facet: boot.BootFacet) -> None:
+        boot_facet.file(PLAIN).source.write_text("factory")
         boot_facet.init()
-        Path(boot_facet._source_path(first)).write_text("changed")
+        boot_facet.file(PLAIN).source.write_text("changed")
 
-        boot_facet.rollback(first, "factory")
+        boot_facet.rollback(PLAIN, "factory")
 
-        assert Path(boot_facet._source_path(first)).read_text() == "factory"
+        assert boot_facet.file(PLAIN).source.read_text() == "factory"
+
+
+class TestAudioCardPreservation:
+    def config_txt(self, facet: boot.BootFacet) -> Path:
+        return facet.file("config.txt").source
+
+    def test_factory_rollback_keeps_the_fitted_card(self, boot_facet: boot.BootFacet) -> None:
+        live = self.config_txt(boot_facet)
+        write_all(boot_facet, "factory")
+        boot_facet.init()
+
+        # The user swaps to a HiFiBerry and bumps an unrelated setting.
+        live.write_text(
+            FACTORY_CONFIG.replace("dtoverlay=iqaudio-codec", "#dtoverlay=iqaudio-codec")
+            .replace("#dtoverlay=hifiberry-dacplusadc", "dtoverlay=hifiberry-dacplusadc")
+            .replace("gpu_mem=16", "gpu_mem=128")
+        )
+
+        boot_facet.rollback("config.txt", "factory")
+
+        text = live.read_text()
+        assert "\ndtoverlay=hifiberry-dacplusadc\n" in text
+        assert "\n#dtoverlay=iqaudio-codec\n" in text
+        assert "gpu_mem=16" in text  # everything else did reset
+
+    def test_rollback_leaves_repo_matching_live(self, boot_facet: boot.BootFacet) -> None:
+        live = self.config_txt(boot_facet)
+        write_all(boot_facet, "factory")
+        boot_facet.init()
+        live.write_text(
+            FACTORY_CONFIG.replace("dtoverlay=iqaudio-codec", "#dtoverlay=iqaudio-codec").replace(
+                "#dtoverlay=hifiberry-dacplusadc", "dtoverlay=hifiberry-dacplusadc"
+            )
+        )
+
+        boot_facet.rollback("config.txt", "factory")
+
+        items = {item.name: item for item in boot_facet.list_items()}
+        assert not items["config.txt"].dirty
+
+    def test_unknown_card_leaves_config_untouched(self, boot_facet: boot.BootFacet) -> None:
+        live = self.config_txt(boot_facet)
+        write_all(boot_facet, "factory")
+        boot_facet.init()
+        # A card this build has never heard of: no known overlay is active.
+        user_text = FACTORY_CONFIG.replace(
+            "dtoverlay=iqaudio-codec", "#dtoverlay=iqaudio-codec\ndtoverlay=allo-boss-dac"
+        )
+        live.write_text(user_text)
+
+        boot_facet.rollback("config.txt", "factory")
+
+        assert live.read_text() == user_text
+
+
+class TestAlsaState:
+    """Factory reset seeds mixer state for the fitted card; it never deletes."""
+
+    @pytest.fixture
+    def seed_calls(self, monkeypatch: pytest.MonkeyPatch) -> list[str]:
+        """Capture seed.sh invocations; assert the overlay each was for.
+
+        boot.py calls boot.subprocess.run, and the fixture's boot_facet
+        writes a fitted overlay into its tmp config.txt, so the fitted-card
+        read works without /usr/lib/pistomp existing.
+        """
+        calls: list[str] = []
+        monkeypatch.setattr(boot, "subprocess", _fake_seed_module(calls))
+        return calls
+
+    def config_txt(self, facet: boot.BootFacet) -> Path:
+        return facet.file("config.txt").source
+
+    def set_hifiberry(self, facet: boot.BootFacet) -> None:
+        self.config_txt(facet).write_text(
+            FACTORY_CONFIG.replace("dtoverlay=iqaudio-codec", "#dtoverlay=iqaudio-codec")
+            .replace("#dtoverlay=hifiberry-dacplusadc", "dtoverlay=hifiberry-dacplusadc")
+        )
+
+    def test_factory_rollback_of_all_files_seeds_the_state(
+        self, boot_facet: boot.BootFacet, seed_calls: list[str]
+    ) -> None:
+        write_all(boot_facet, "seeded iqaudio state\n")
+        boot_facet.init()
+
+        boot_facet.rollback_all("factory")
+
+        assert seed_calls == ["iqaudio-codec"]
+
+    def test_unknown_or_ambiguous_card_leaves_state_untouched(
+        self, boot_facet: boot.BootFacet, seed_calls: list[str]
+    ) -> None:
+        live = boot_facet.file("asound.state").source
+        write_all(boot_facet, "seeded iqaudio state\n")
+        boot_facet.init()
+        live.write_text("state written for the fitted card\n")
+        self.config_txt(boot_facet).write_text(
+            FACTORY_CONFIG.replace(
+                "dtoverlay=iqaudio-codec", "#dtoverlay=iqaudio-codec\ndtoverlay=allo-boss-dac"
+            )
+        )
+
+        boot_facet.rollback("asound.state", "factory")
+
+        # Never-guess: no seed invocation; the file keeps its git-restored
+        # factory baseline content.
+        assert seed_calls == []
+        assert live.read_text() == "seeded iqaudio state\n"
+
+    def test_hifiberry_fitted_seeds_hifiberry(
+        self, boot_facet: boot.BootFacet, seed_calls: list[str]
+    ) -> None:
+        write_all(boot_facet, "seeded iqaudio state\n")
+        boot_facet.init()
+        self.set_hifiberry(boot_facet)
+
+        boot_facet.rollback("asound.state", "factory")
+
+        assert seed_calls == ["hifiberry-dacplusadc"]
+
+    def test_stamp_rollback_restores_the_state(
+        self, boot_facet: boot.BootFacet, seed_calls: list[str]
+    ) -> None:
+        live = boot_facet.file("asound.state").source
+        write_all(boot_facet, "seeded iqaudio state\n")
+        boot_facet.init()
+        live.write_text("state for the fitted card\n")
+        boot_facet.stamp()
+        live.write_text("drifted\n")
+
+        boot_facet.rollback("asound.state", "stamp")
+
+        assert live.read_text() == "state for the fitted card\n"
+        assert seed_calls == []
+
+    def test_other_boot_files_still_restore(
+        self, boot_facet: boot.BootFacet, seed_calls: list[str]
+    ) -> None:
+        write_all(boot_facet, "factory")
+        boot_facet.init()
+        boot_facet.file(PLAIN).source.write_text("changed")
+
+        boot_facet.rollback_all("factory")
+
+        assert boot_facet.file(PLAIN).source.read_text() == "factory"
+        assert seed_calls == ["iqaudio-codec"]
+
+
+def _fake_seed_module(calls: list[str]):
+    """A subprocess stand-in that records seed.sh invocations and succeeds."""
+    import subprocess as real_subprocess
+    from types import SimpleNamespace
+
+    class _Fake:
+        CompletedProcess = real_subprocess.CompletedProcess
+
+        @staticmethod
+        def run(cmd, **kwargs):
+            calls.append(cmd[1])
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    return _Fake
+
+
+class TestUpgradeFromOlderFileList:
+    """Deploying a build that tracks files the existing factory branch predates."""
+
+    def upgraded(self, boot_facet: boot.BootFacet) -> boot.BootFacet:
+        """Init a facet tracking only jack, then widen it to the full list."""
+        boot_facet.file("jack").source.write_text("jack settings\n")
+        narrow = boot.BootFacet(
+            name="boot",
+            repo_dir=boot_facet.repo_dir,
+            files=(boot_facet.file("jack"),),
+        )
+        narrow.init()
+        boot_facet.file("jack").source.write_text("dirty before migration\n")
+        boot_facet.file("config.txt").source.write_text(FACTORY_CONFIG)
+        boot_facet.migrate_factory_baseline()
+        return boot_facet
+
+    def test_moved_config_placeholder_is_replaced(self, boot_facet: boot.BootFacet) -> None:
+        live = boot_facet.file("config.txt").source
+        live.write_text(
+            "DO NOT EDIT THIS FILE\n"
+            "The file you are looking for has moved to /boot/firmware/config.txt\n"
+        )
+        legacy = boot.BootFacet(
+            name="boot",
+            repo_dir=boot_facet.repo_dir,
+            files=(TrackedFile("config.txt", live),),
+        )
+        legacy.init()
+        live.write_text(FACTORY_CONFIG)
+
+        boot_facet.migrate_factory_baseline()
+
+        assert (boot_facet.repo_dir / "config.txt").read_text() == FACTORY_CONFIG
+
+
+    def test_migration_does_not_capture_dirty_existing_files(
+        self, boot_facet: boot.BootFacet
+    ) -> None:
+        facet = self.upgraded(boot_facet)
+
+        assert (facet.repo_dir / "jack").read_text() == "jack settings\n"
+
+
+    def test_factory_rollback_does_not_delete_a_newly_tracked_file(
+        self, boot_facet: boot.BootFacet
+    ) -> None:
+        facet = self.upgraded(boot_facet)
+        live = facet.file("config.txt").source
+
+        facet.rollback("config.txt", "factory")
+
+        assert live.exists(), "factory rollback deleted a file the factory branch predates"
+
+    def test_newly_tracked_file_gets_its_current_content_as_baseline(
+        self, boot_facet: boot.BootFacet
+    ) -> None:
+        facet = self.upgraded(boot_facet)
+        live = facet.file("config.txt").source
+        live.write_text(FACTORY_CONFIG.replace("gpu_mem=16", "gpu_mem=128"))
+
+        facet.rollback("config.txt", "factory")
+
+        assert live.read_text() == FACTORY_CONFIG
+
+    def test_card_is_preserved_on_an_upgraded_device(self, boot_facet: boot.BootFacet) -> None:
+        facet = self.upgraded(boot_facet)
+        live = facet.file("config.txt").source
+        live.write_text(
+            FACTORY_CONFIG.replace("dtoverlay=iqaudio-codec", "#dtoverlay=iqaudio-codec").replace(
+                "#dtoverlay=hifiberry-dacplusadc", "dtoverlay=hifiberry-dacplusadc"
+            )
+        )
+
+        facet.rollback("config.txt", "factory")
+
+        assert "\ndtoverlay=hifiberry-dacplusadc\n" in live.read_text()
+
+    def test_untouched_files_keep_their_original_factory_baseline(
+        self, boot_facet: boot.BootFacet
+    ) -> None:
+        facet = self.upgraded(boot_facet)
+        jack = facet.file("jack").source
+        jack.write_text("drifted\n")
+
+        facet.rollback("jack", "factory")
+
+        assert jack.read_text() == "jack settings\n"
 
 
 def git_branch_exists(repo: Path, branch: str) -> bool:

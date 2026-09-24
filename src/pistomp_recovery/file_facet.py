@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import logging
 import shutil
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Callable
 
 from pistomp_recovery import git_util
 from pistomp_recovery.facet import RollbackTarget
@@ -12,6 +12,19 @@ from pistomp_recovery.items import Action, Item
 from pistomp_recovery.util import human_time
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class TrackedFile:
+    """One live file tracked by a :class:`FileFacet`."""
+
+    name: str
+    source: Path
+    display_name: str | None = None
+
+    @property
+    def label(self) -> str:
+        return self.display_name or self.name
 
 
 def _file_equal(a: Path, b: Path) -> bool:
@@ -24,11 +37,10 @@ def _file_equal(a: Path, b: Path) -> bool:
 
 
 class FileFacet:
-    """Recovery facet for a set of files tracked via copy + commit.
+    """Recovery facet for files tracked by a small git repository.
 
-    Live files remain at their original paths. On init and stamp, the current
-    file contents are copied into ``repo_dir`` and committed. Rollback checks
-    out a ref in the repo and copies files back to their live paths.
+    Live files stay at their original paths: init and stamp copy them into
+    ``repo_dir`` and commit, rollback checks out a ref and copies them back.
     """
 
     name: str
@@ -38,45 +50,46 @@ class FileFacet:
         *,
         name: str,
         repo_dir: Path,
-        files: tuple[str, ...],
-        source_resolver: Callable[[str], Path],
-        display_name_resolver: Callable[[str], str],
+        files: tuple[TrackedFile, ...],
     ) -> None:
         self.name = name
         self.repo_dir = repo_dir
         self.files = files
-        self._source_path = source_resolver
-        self._display_name = display_name_resolver
+        self._files_by_name = {file.name: file for file in files}
+
+    def file(self, name: str) -> TrackedFile:
+        """Return the tracked-file definition for ``name``."""
+        return self._files_by_name[name]
 
     def _repo_path(self, filename: str) -> Path:
         return self.repo_dir / filename
 
-    def _copy_to_repo(self, filename: str) -> None:
-        """Copy the live file into the repo, or remove the repo copy if the live file is gone."""
-        src = self._source_path(filename)
-        dst = self._repo_path(filename)
-        if src.exists():
+    def _copy_to_repo(self, file: TrackedFile) -> None:
+        """Copy the live file into the repo, or remove it if the live file is gone."""
+        dst = self._repo_path(file.name)
+        if file.source.exists():
             dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dst)
+            shutil.copy2(file.source, dst)
         elif dst.exists():
             dst.unlink()
 
-    def _copy_from_repo(self, filename: str) -> None:
-        """Copy a repo file back to the live path.
+    def _restore_to_live(self, file: TrackedFile, target: RollbackTarget) -> None:
+        """Copy a checked-out repo file back to its live path.
 
-        If the repo copy is gone, delete the live file instead.
+        ``target`` is unused here; subclasses override this when restoring a
+        particular file means more than copying it.
         """
-        src = self._repo_path(filename)
-        dst = self._source_path(filename)
-        if src.exists():
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dst)
-        elif dst.exists():
-            dst.unlink()
+        restored = self._repo_path(file.name)
+        live = file.source
+        if restored.exists():
+            live.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(restored, live)
+        elif live.exists():
+            live.unlink()
 
     def snapshot(self) -> None:
-        for filename in self.files:
-            self._copy_to_repo(filename)
+        for file in self.files:
+            self._copy_to_repo(file)
 
     def init_repo(self) -> None:
         self.repo_dir.mkdir(parents=True, exist_ok=True)
@@ -120,12 +133,14 @@ class FileFacet:
     def rollback_file(self, filename: str, target: RollbackTarget) -> None:
         """Rollback a single file to stamp or factory."""
         self.init_repo()
+        file = self.file(filename)
         ref = git_util.FACTORY_BRANCH if target == "factory" else "HEAD"
         if self._exists_in_ref(filename, ref):
             git_util.git("checkout", ref, "--", filename, cwd=self.repo_dir)
         else:
             self._delete_from_repo(filename)
-        self._copy_from_repo(filename)
+        self._restore_to_live(file, target)
+        self._copy_to_repo(file)
         git_util.add_and_commit(self.repo_dir, f"rollback {filename}")
 
     def rollback_all(self, target: RollbackTarget) -> None:
@@ -133,10 +148,11 @@ class FileFacet:
         self.init_repo()
         ref = git_util.FACTORY_BRANCH if target == "factory" else "HEAD"
         git_util.git("checkout", ref, "--", ".", cwd=self.repo_dir)
-        for filename in self.files:
-            if not self._exists_in_ref(filename, ref):
-                self._delete_from_repo(filename)
-            self._copy_from_repo(filename)
+        for file in self.files:
+            if not self._exists_in_ref(file.name, ref):
+                self._delete_from_repo(file.name)
+            self._restore_to_live(file, target)
+            self._copy_to_repo(file)
         git_util.add_and_commit(self.repo_dir, f"rollback to {ref}")
 
     def list_items(self) -> list[Item]:
@@ -144,35 +160,33 @@ class FileFacet:
         stamp_time = self.stamp_time()
 
         items: list[Item] = []
-        for filename in self.files:
-            src = self._source_path(filename)
-            repo_copy = self._repo_path(filename)
-            if not src.exists() and not repo_copy.exists():
+        for file in self.files:
+            repo_copy = self._repo_path(file.name)
+            if not file.source.exists() and not repo_copy.exists():
                 continue
 
-            dirty = not _file_equal(src, repo_copy)
-            display_name = self._display_name(filename)
+            dirty = not _file_equal(file.source, repo_copy)
             actions: list[Action] = []
             if stamp_time:
                 actions.append(
                     Action(
                         "Rollback to stamp",
-                        lambda f=filename: self.rollback_file(f, "stamp"),
-                        confirm=f"Rollback {display_name}\nto last stamp?",
+                        lambda f=file.name: self.rollback_file(f, "stamp"),
+                        confirm=f"Rollback {file.label}\nto last stamp?",
                     )
                 )
             actions.append(
                 Action(
                     "Rollback to factory",
-                    lambda f=filename: self.rollback_file(f, "factory"),
-                    confirm=f"Reset {display_name}\nto factory?",
+                    lambda f=file.name: self.rollback_file(f, "factory"),
+                    confirm=f"Reset {file.label}\nto factory?",
                 )
             )
 
             items.append(
                 Item(
-                    name=display_name,
-                    label=display_name + (" *" if dirty else ""),
+                    name=file.label,
+                    label=file.label + (" *" if dirty else ""),
                     dirty=dirty,
                     right=human_time(stamp_time) if stamp_time else "factory",
                     actions=actions,

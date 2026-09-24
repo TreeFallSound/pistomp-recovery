@@ -74,12 +74,13 @@ def clear_facets() -> None:
 def register_default_facets(
     manager: PackageManager | None = None,
 ) -> None:
-    """Register the real device facets (config, system, pedalboards, packages).
+    """Register the real device facets (config, boot, pedalboards, packages).
 
     Entry points that run on the pi-Stomp should call this before using
     ``all_facets()`` or ``get_facet()``.  Pass a ``PackageManager`` to share
     the same detected instance with ``RealDataBackend``; omit it to
-    auto-detect.
+    auto-detect.  Boot repository migration runs here before registration so
+    observation methods remain read-only with respect to old repositories.
     """
     from pistomp_recovery.boot import make_boot_facet
     from pistomp_recovery.config import make_config_facet
@@ -88,7 +89,9 @@ def register_default_facets(
     from pistomp_recovery.plugins import make_plugin_facet
 
     register_facet("config", make_config_facet())
-    register_facet("boot", make_boot_facet())
+    boot = make_boot_facet()
+    boot.migrate_factory_baseline()
+    register_facet("boot", boot)
     register_facet("pedalboards", make_pedalboard_facet())
     register_facet("plugins", make_plugin_facet())
     register_facet("packages", make_package_facet(manager))

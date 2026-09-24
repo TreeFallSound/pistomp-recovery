@@ -43,7 +43,7 @@ class TestConfigDomainAggregation:
         items = data.domain_items("factory", "config")
         names = {it.name for it in items}
         assert "config.txt" in names
-        assert "jackdrc" in names
+        assert "jack" in names
 
     def test_config_item_names_are_unique(self, data: EmulatorDataBackend) -> None:
         """Merged Config list must have no duplicate item names."""
@@ -96,7 +96,7 @@ class TestSystemDomainPackages:
     ) -> None:
         file_names = {
             "default_config.yml", "settings.yml",
-            "config.txt", "cmdline.txt", "jackdrc",
+            "config.txt", "cmdline.txt", "jack",
         }
         for mode in ("factory", "checkpoint", "updates"):
             items = data.domain_items(mode, "system")
@@ -133,8 +133,10 @@ class TestActionRouting:
         # Execute the rollback
         rollback_action.callback()
 
-        # config.txt should be restored to factory content
-        assert config_txt.read_text() == "# factory config.txt\n"
+        # config.txt is reset except for the sound card the pedal has fitted
+        restored = config_txt.read_text()
+        assert "gpu_mem=16" in restored
+        assert "\ndtoverlay=hifiberry-dacplusadc\n" in restored
         # settings.yml must be untouched
         assert settings_before.read_text() == settings_content_before
 

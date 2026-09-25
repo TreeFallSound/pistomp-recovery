@@ -356,6 +356,13 @@ class RecoveryAppCore:
             self._backends.services.reboot()
         else:
             logger.warning("Audio card change to %s failed; staying on menu", name)
+            rows: list[Row] = [
+                Row(prefix=f"Could not switch to {name}."),
+                Row(prefix="Nothing was changed."),
+                Row(prefix=""),
+                Row((Target("BACK", self.pop_screen),)),
+            ]
+            self._push_menu("Audio Card Failed", rows, back=True)
 
     def _show_domain_picker(self, mode: str) -> None:
         rows: list[Row] = []

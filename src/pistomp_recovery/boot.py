@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import logging
-import subprocess
 from pathlib import Path
 
-from pistomp_recovery import audio_card, git_util
-from pistomp_recovery.constants import BOOT_FIRMWARE_DIR, RECOVERY_DIR, SEED_SCRIPT
+from pistomp_recovery import audio_card, git_util, privileged
+from pistomp_recovery.constants import BOOT_FIRMWARE_DIR, RECOVERY_DIR
 from pistomp_recovery.facet import RollbackTarget
 from pistomp_recovery.file_facet import FileFacet, TrackedFile
 
@@ -72,7 +71,7 @@ class BootFacet(FileFacet):
         if merged is None:
             logger.warning("cannot identify the fitted audio card; leaving %s as-is", file.name)
             return
-        file.source.write_text(merged)
+        privileged.write_text(file.source, merged)
 
     def _seed_alsa_state(self, file: TrackedFile) -> None:
         """Write the packaged known-good state for the fitted card.
@@ -93,9 +92,7 @@ class BootFacet(FileFacet):
                 "cannot identify the fitted audio card; leaving %s as-is", file.name
             )
             return
-        proc = subprocess.run(
-            [SEED_SCRIPT, fitted], check=False, capture_output=True, text=True
-        )
+        proc = privileged.seed_alsa_state(fitted)
         if proc.returncode != 0:
             logger.warning(
                 "seed.sh %s failed (rc=%d); leaving %s as-is",

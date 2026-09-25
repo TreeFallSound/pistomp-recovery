@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-from pistomp_recovery import git_util
+from pistomp_recovery import git_util, privileged
 from pistomp_recovery.facet import RollbackTarget
 from pistomp_recovery.items import Action, Item
 from pistomp_recovery.util import human_time
@@ -83,9 +83,9 @@ class FileFacet:
         live = file.source
         if restored.exists():
             live.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(restored, live)
+            privileged.copy(restored, live)
         elif live.exists():
-            live.unlink()
+            privileged.remove(live)
 
     def snapshot(self) -> None:
         for file in self.files:

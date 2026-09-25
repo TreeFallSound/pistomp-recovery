@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from pistomp_recovery import boot
+from pistomp_recovery import boot, privileged
 from pistomp_recovery.file_facet import TrackedFile
 
 PLAIN = "cmdline.txt"
@@ -179,12 +179,12 @@ class TestAlsaState:
     def seed_calls(self, monkeypatch: pytest.MonkeyPatch) -> list[str]:
         """Capture seed.sh invocations; assert the overlay each was for.
 
-        boot.py calls boot.subprocess.run, and the fixture's boot_facet
+        seed.sh runs via privileged.subprocess.run, and the fixture's boot_facet
         writes a fitted overlay into its tmp config.txt, so the fitted-card
         read works without /usr/lib/pistomp existing.
         """
         calls: list[str] = []
-        monkeypatch.setattr(boot, "subprocess", _fake_seed_module(calls))
+        monkeypatch.setattr(privileged, "subprocess", _fake_seed_module(calls))
         return calls
 
     def config_txt(self, facet: boot.BootFacet) -> Path:
@@ -275,7 +275,7 @@ def _fake_seed_module(calls: list[str]):
 
         @staticmethod
         def run(cmd, **kwargs):
-            calls.append(cmd[1])
+            calls.append(cmd[-1])
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
     return _Fake

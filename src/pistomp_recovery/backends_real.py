@@ -16,7 +16,7 @@ from typing import Callable
 
 import pygame
 
-from pistomp_recovery import audio_card
+from pistomp_recovery import audio_card, privileged
 from pistomp_recovery.backends import (
     AppBackends,
     DataBackend,
@@ -28,7 +28,6 @@ from pistomp_recovery.backends import (
 from pistomp_recovery.constants import (
     BOOT_FIRMWARE_DIR,
     DOMAIN_FACETS,
-    SEED_SCRIPT,
     services_for_packages,
 )
 from pistomp_recovery.facet import Facet, all_facets, register_default_facets
@@ -66,15 +65,9 @@ def _seed_alsa_state(name: str) -> bool:
     """Seed /var/lib/alsa/asound.state for overlay ``name`` via seed.sh.
 
     seed.sh ships in pistomp-audio (>= 1.1.0-1), which this package
-    Depends on. Runs as root: the recovery service runs with CAP_DAC_OVERRIDE
-    style device access but asound.state is root-owned.
+    Depends on.
     """
-    proc = subprocess.run(
-        [SEED_SCRIPT, name],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
+    proc = privileged.seed_alsa_state(name)
     if proc.returncode != 0:
         logger.warning(
             "seed.sh %s failed (rc=%d): %s",
@@ -313,7 +306,7 @@ class RealDataBackend(DataBackend):
         if not _seed_alsa_state(name):
             return False
         try:
-            config.write_text(rewritten)
+            privileged.write_text(config, rewritten)
         except OSError:
             logger.warning("Could not write %s for audio-card change", config, exc_info=True)
             return False
